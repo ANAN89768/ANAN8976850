@@ -1,0 +1,277 @@
+-- Settings
+local REACH = 50
+local BUILD_ENABLED = false
+local INCREMENT_ENABLED = false
+local CUSTOM_INC = 1
+local CURRENT_SIZE = Vector3.new(1, 1, 1)
+local CURRENT_COLOR = BrickColor.new("White")
+local CURRENT_ROTATION = 0 
+local CURRENT_MATERIAL = Enum.Material.SmoothPlastic
+
+-- History Logic
+local History = {}
+local RedoStack = {}
+
+-- Services
+local Player = game.Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
+
+local BuildFolder = workspace:FindFirstChild("DeltaBuilds") or Instance.new("Folder", workspace)
+BuildFolder.Name = "DeltaBuilds"
+
+-- 1. GUI Setup
+local ScreenGui = Instance.new("ScreenGui", Player:WaitForChild("PlayerGui"))
+ScreenGui.Name = "DeltaBuilder_V25_5"
+ScreenGui.ResetOnSpawn = false
+
+-- SURGICAL CROSSHAIR
+local Crosshair = Instance.new("TextLabel", ScreenGui)
+Crosshair.Text = "+"
+Crosshair.TextColor3 = Color3.new(1, 1, 1)
+Crosshair.BackgroundTransparency = 1
+Crosshair.TextSize = 20 
+Crosshair.Size = UDim2.new(0, 20, 0, 20)
+Crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+Crosshair.Position = UDim2.new(0.5, 0, 0.385, 0) 
+Crosshair.Visible = false
+
+-- MAIN FRAME
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Size = UDim2.new(0, 160, 0, 320) 
+MainFrame.Position = UDim2.new(0.05, 0, 0.3, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+
+local DragBar = Instance.new("TextLabel", MainFrame)
+DragBar.Size = UDim2.new(1, 0, 0, 30)
+DragBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+DragBar.Text = "BUILDER V25.5"
+DragBar.TextColor3 = Color3.new(1, 1, 1)
+DragBar.Font = Enum.Font.SourceSansBold
+
+-- RESTORED: CROP SYSTEM
+local IsMinimized = false
+local CropBtn = Instance.new("TextButton", DragBar)
+CropBtn.Size = UDim2.new(0, 25, 0, 25)
+CropBtn.Position = UDim2.new(1, -30, 0, 2)
+CropBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+CropBtn.Text = "–"
+CropBtn.TextColor3 = Color3.new(1, 1, 1)
+
+local ContentFrame = Instance.new("Frame", MainFrame)
+ContentFrame.Size = UDim2.new(1, 0, 1, -30)
+ContentFrame.Position = UDim2.new(0, 0, 0, 30)
+ContentFrame.BackgroundTransparency = 1
+
+CropBtn.MouseButton1Click:Connect(function()
+    IsMinimized = not IsMinimized
+    ContentFrame.Visible = not IsMinimized
+    MainFrame.Size = IsMinimized and UDim2.new(0, 160, 0, 30) or UDim2.new(0, 160, 0, 320)
+    CropBtn.Text = IsMinimized and "+" or "–"
+end)
+
+-- UNDO/REDO
+local UndoBtn = Instance.new("TextButton", ContentFrame)
+UndoBtn.Size = UDim2.new(0.42, 0, 0.08, 0)
+UndoBtn.Position = UDim2.new(0.05, 0, 0.12, 0)
+UndoBtn.Text = "←"
+UndoBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+UndoBtn.TextColor3 = Color3.new(1, 1, 1)
+
+local RedoBtn = Instance.new("TextButton", ContentFrame)
+RedoBtn.Size = UDim2.new(0.42, 0, 0.08, 0)
+RedoBtn.Position = UDim2.new(0.53, 0, 0.12, 0)
+RedoBtn.Text = "→"
+RedoBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+RedoBtn.TextColor3 = Color3.new(1, 1, 1)
+
+-- TOGGLE
+local ToggleBtn = Instance.new("TextButton", ContentFrame)
+ToggleBtn.Size = UDim2.new(0.9, 0, 0.08, 0)
+ToggleBtn.Position = UDim2.new(0.05, 0, 0.02, 0)
+ToggleBtn.Text = "OFF"
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+
+-- RESTORED: INC SYSTEM
+local IncToggle = Instance.new("TextButton", ContentFrame)
+IncToggle.Size = UDim2.new(0.42, 0, 0.08, 0)
+IncToggle.Position = UDim2.new(0.05, 0, 0.22, 0)
+IncToggle.Text = "INC: OFF"
+IncToggle.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+IncToggle.TextColor3 = Color3.new(1, 1, 1)
+
+local IncInput = Instance.new("TextBox", ContentFrame)
+IncInput.Size = UDim2.new(0.42, 0, 0.08, 0)
+IncInput.Position = UDim2.new(0.53, 0, 0.22, 0)
+IncInput.Text = "1"
+IncInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+IncInput.TextColor3 = Color3.new(1, 1, 1)
+
+-- ROTATION
+local RotBtn = Instance.new("TextButton", ContentFrame)
+RotBtn.Size = UDim2.new(0.9, 0, 0.08, 0)
+RotBtn.Position = UDim2.new(0.05, 0, 0.32, 0)
+RotBtn.Text = "Rotate (0°)"
+RotBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 0)
+RotBtn.TextColor3 = Color3.new(1, 1, 1)
+
+-- COLORS
+local colors = {
+	{color = BrickColor.new("White"), pos = 0.05},
+	{color = BrickColor.new("Really black"), pos = 0.28},
+	{color = BrickColor.new("Bright red"), pos = 0.51},
+	{color = BrickColor.new("Bright blue"), pos = 0.74}
+}
+
+for _, data in ipairs(colors) do
+	local btn = Instance.new("TextButton", ContentFrame)
+	btn.Size = UDim2.new(0.21, 0, 0.08, 0)
+	btn.Position = UDim2.new(data.pos, 0, 0.42, 0)
+	btn.BackgroundColor3 = data.color.Color
+	btn.Text = "" 
+	btn.BorderSizePixel = 1
+	btn.MouseButton1Click:Connect(function()
+		CURRENT_COLOR = data.color
+		CURRENT_MATERIAL = Enum.Material.SmoothPlastic
+	end)
+end
+
+-- SIZE/PLACE
+local SizeInput = Instance.new("TextBox", ContentFrame)
+SizeInput.Size = UDim2.new(0.9, 0, 0.08, 0)
+SizeInput.Position = UDim2.new(0.05, 0, 0.52, 0)
+SizeInput.Text = "1, 1, 1"
+SizeInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+SizeInput.TextColor3 = Color3.new(1, 1, 1)
+
+local PlaceBtn = Instance.new("TextButton", ContentFrame)
+PlaceBtn.Size = UDim2.new(0.9, 0, 0.12, 0)
+PlaceBtn.Position = UDim2.new(0.05, 0, 0.65, 0)
+PlaceBtn.Text = "Place"
+PlaceBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+PlaceBtn.TextColor3 = Color3.new(1, 1, 1)
+PlaceBtn.TextScaled = true
+
+local ClearAllBtn = Instance.new("TextButton", ContentFrame)
+ClearAllBtn.Size = UDim2.new(0.9, 0, 0.08, 0)
+ClearAllBtn.Position = UDim2.new(0.05, 0, 0.85, 0)
+ClearAllBtn.Text = "DELETE ALL"
+ClearAllBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+ClearAllBtn.TextColor3 = Color3.new(1, 1, 1)
+
+-- 2. LOGIC
+local Preview = Instance.new("Part")
+Preview.Transparency = 1
+Preview.CanCollide = false
+Preview.Anchored = true
+Preview.Material = Enum.Material.Neon
+Preview.Parent = workspace
+
+local function placeBlock()
+	if BUILD_ENABLED and Preview.Transparency < 1 then
+		local b = Instance.new("Part", BuildFolder)
+		b.Size = CURRENT_SIZE
+		b.CFrame = Preview.CFrame 
+		b.BrickColor = CURRENT_COLOR
+		b.Material = CURRENT_MATERIAL
+		b.Anchored = true
+		table.insert(History, b)
+		for _, p in pairs(RedoStack) do if p.Parent == nil then p:Destroy() end end
+		RedoStack = {}
+	end
+end
+
+UndoBtn.MouseButton1Click:Connect(function()
+	if #History > 0 then
+		local part = table.remove(History, #History)
+		part.Parent = nil
+		table.insert(RedoStack, part)
+	end
+end)
+
+RedoBtn.MouseButton1Click:Connect(function()
+	if #RedoStack > 0 then
+		local part = table.remove(RedoStack, #RedoStack)
+		part.Parent = BuildFolder
+		table.insert(History, part)
+	end
+end)
+
+-- FIXED INC SNAP LOGIC
+RunService.Heartbeat:Connect(function()
+	if BUILD_ENABLED then
+		local ray = Ray.new(Camera.CFrame.Position, Camera.CFrame.LookVector * REACH)
+		local hit, pos, normal = workspace:FindPartOnRayWithIgnoreList(ray, {Preview, Player.Character})
+		if hit then
+			local step = INCREMENT_ENABLED and CUSTOM_INC or 0.01 -- High precision if off
+			local p = pos + (normal * (CURRENT_SIZE.Y / 2))
+			local finalPos = Vector3.new(
+                math.round(p.X/step)*step, 
+                math.round(p.Y/step)*step, 
+                math.round(p.Z/step)*step
+            )
+			Preview.CFrame = CFrame.new(finalPos) * CFrame.Angles(0, math.rad(CURRENT_ROTATION), 0)
+			Preview.Transparency = 0.6
+			Preview.BrickColor = CURRENT_COLOR
+		else
+			Preview.Transparency = 1
+		end
+	else
+		Preview.Transparency = 1
+	end
+end)
+
+-- INPUT CONNECTS
+ToggleBtn.MouseButton1Click:Connect(function() 
+    BUILD_ENABLED = not BUILD_ENABLED 
+    ToggleBtn.Text = BUILD_ENABLED and "ON" or "OFF" 
+    ToggleBtn.BackgroundColor3 = BUILD_ENABLED and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 0, 0) 
+    Crosshair.Visible = BUILD_ENABLED 
+end)
+
+IncToggle.MouseButton1Click:Connect(function() 
+    INCREMENT_ENABLED = not INCREMENT_ENABLED 
+    IncToggle.Text = INCREMENT_ENABLED and "INC: ON" or "INC: OFF" 
+    IncToggle.BackgroundColor3 = INCREMENT_ENABLED and Color3.fromRGB(0, 120, 0) or Color3.fromRGB(80, 80, 80) 
+end)
+
+IncInput.FocusLost:Connect(function() 
+    CUSTOM_INC = tonumber(IncInput.Text) or 1 
+end)
+
+RotBtn.MouseButton1Click:Connect(function() 
+    CURRENT_ROTATION = (CURRENT_ROTATION + 45) % 360 
+    RotBtn.Text = "Rotate ("..CURRENT_ROTATION.."°)" 
+end)
+
+SizeInput.FocusLost:Connect(function() 
+    local text = SizeInput.Text:gsub("[^%d%.%*%,%s]", "") 
+    local nums = {} 
+    for num in text:gmatch("[%d%.]+") do table.insert(nums, tonumber(num)) end 
+    if #nums >= 3 then 
+        CURRENT_SIZE = Vector3.new(nums[1], nums[2], nums[3]) 
+        Preview.Size = CURRENT_SIZE 
+    end 
+end)
+
+PlaceBtn.MouseButton1Click:Connect(placeBlock)
+ClearAllBtn.MouseButton1Click:Connect(function() BuildFolder:ClearAllChildren() History = {} RedoStack = {} end)
+
+-- DRAGGING
+local dragging, dragStart, startPos
+DragBar.InputBegan:Connect(function(input) 
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
+        dragging = true dragStart = input.Position startPos = MainFrame.Position 
+    end 
+end)
+UIS.InputChanged:Connect(function(input) 
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then 
+        local delta = input.Position - dragStart 
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) 
+    end 
+end)
+UIS.InputEnded:Connect(function() dragging = false end)
