@@ -1,20 +1,22 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local player = Players.LocalPlayer
 
--- Variables that stay active across resets
 local portalA, portalB = nil, nil
 local toggle = false
 local tpCooldown = false
 
--- THE FUNCTION CONTAINING YOUR ORIGINAL SCRIPT LOGIC
 local function startScript(character)
-    -- 1. BUILDER UI (0.385 Y)
+    local hum = character:WaitForChild("Humanoid")
+    local root = character:WaitForChild("HumanoidRootPart")
+    
     local sg = player.PlayerGui:FindFirstChild("PortalUI") or Instance.new("ScreenGui", player.PlayerGui)
     sg.Name = "PortalUI"
-    sg.ResetOnSpawn = false -- Keeps UI from flickering on death
+    sg.ResetOnSpawn = false
     sg.IgnoreGuiInset = true
+    
     local crosshair = sg:FindFirstChild("Crosshair") or Instance.new("TextLabel", sg)
     crosshair.Text = "+"
     crosshair.Position = UDim2.new(0.5, 0, 0.385, 0)
@@ -22,12 +24,34 @@ local function startScript(character)
     crosshair.BackgroundTransparency = 1
     crosshair.TextColor3 = Color3.new(1, 1, 1)
 
-    -- 2. THE TOOL (GIVEN BACK ON RESET)
+    -- DUAL-COLOR TOOL VISUALS
     local tool = Instance.new("Tool", player.Backpack)
     tool.Name = "Portal's Gun"
-    tool.RequiresHandle = false
+    tool.RequiresHandle = true 
 
-    -- 3. OPTIMIZED VIEWPORT CREATOR
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Size = Vector3.new(0.5, 0.5, 1)
+    handle.Transparency = 1 
+    handle.Parent = tool
+
+    local blueSide = Instance.new("Part", tool)
+    blueSide.Size = Vector3.new(0.5, 0.5, 0.5)
+    blueSide.Color = Color3.fromRGB(0, 170, 255)
+    blueSide.Material = Enum.Material.Neon
+    blueSide.CanCollide = false
+    local weldA = Instance.new("Weld", blueSide)
+    weldA.Part0 = handle; weldA.Part1 = blueSide; weldA.C0 = CFrame.new(0, 0, -0.25)
+
+    local orangeSide = Instance.new("Part", tool)
+    orangeSide.Size = Vector3.new(0.5, 0.5, 0.5)
+    orangeSide.Color = Color3.fromRGB(255, 132, 0)
+    orangeSide.Material = Enum.Material.Neon
+    orangeSide.CanCollide = false
+    local weldB = Instance.new("Weld", orangeSide)
+    weldB.Part0 = handle; weldB.Part1 = orangeSide; weldB.C0 = CFrame.new(0, 0, 0.25)
+
+    -- VIEWPORT
     local function createPortal(result, color)
         local p = Instance.new("Part", workspace)
         p.Size = Vector3.new(5, 7, 0.5)
@@ -39,15 +63,11 @@ local function startScript(character)
 
         local sGui = Instance.new("SurfaceGui", p)
         sGui.Face = Enum.NormalId.Front
-        
         local vf = Instance.new("ViewportFrame", sGui)
         vf.Size = UDim2.new(1, 0, 1, 0)
-        vf.BackgroundTransparency = 0
         vf.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
         
-        -- Fix for black viewport: Use a WorldModel
         local wm = Instance.new("WorldModel", vf)
-        
         local baseplate = workspace:FindFirstChild("Baseplate") or workspace:FindFirstChildOfClass("Part")
         if baseplate then
             local bClone = baseplate:Clone()
@@ -61,21 +81,30 @@ local function startScript(character)
         return {Part = p, VF = vf, Cam = vCam}
     end
 
-    -- 5. TELEPORT & GUN
+    -- TELEPORT LOGIC (LOOKING AT BACK + LOWER POWER)
     local function teleport(target)
         if tpCooldown then return end
         tpCooldown = true
-        local root = character:WaitForChild("HumanoidRootPart")
-        if root then
-            root.AssemblyLinearVelocity = Vector3.new(0,0,0)
-            -- FIXED: Added 1.5 height offset to stop floor ragdoll
-            root.CFrame = target.Part.CFrame * CFrame.new(0, 1.5, -7) * CFrame.Angles(0, math.rad(180), 0)
+        
+        if root and hum then
+            root.AssemblyLinearVelocity = Vector3.zero
+            
+            -- FIX: Rotation set so you are LOOKING AT THE PORTAL after teleporting
+            root.CFrame = target.Part.CFrame * CFrame.new(0, 1.8, -1.5) 
+            
+            -- LAUNCH: Lowered to 30 for a smoother ejection
+            task.wait() 
+            root.AssemblyLinearVelocity = target.Part.CFrame.LookVector * 30
+            
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
+        
         task.wait(0.75) -- Your 0.75s Cooldown
         tpCooldown = false
     end
 
-    tool.Activated:Connect(function()
+    -- SHOOTING FUNCTION
+    local function shoot()
         local ray = Camera:ViewportPointToRay(Camera.ViewportSize.X * 0.5, Camera.ViewportSize.Y * 0.385)
         local result = workspace:Raycast(ray.Origin, ray.Direction * 1000)
 
@@ -94,24 +123,26 @@ local function startScript(character)
                 portalB.Part.Touched:Connect(function(h) if h.Parent == character then teleport(portalA) end end)
             end
         end
+    end
+
+    -- PC MOUSE CLICK SUPPORT
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 and tool.Parent == character then
+            shoot()
+        end
     end)
+
+    -- MOBILE BUTTON SUPPORT
+    tool.Activated:Connect(shoot)
 end
 
--- ANTI-DELETE FEATURE: Detects when you respawn and gives you the gun
-player.CharacterAdded:Connect(function(newChar)
-    startScript(newChar)
-end)
+-- ANTI-DELETE: Gives tool back on reset
+player.CharacterAdded:Connect(startScript)
+if player.Character then startScript(player.Character) end
 
--- Initial run so it works the first time you execute
-if player.Character then
-    startScript(player.Character)
-end
-
--- 4. CAMERA SYNC LOOP (Outside the loop so it stays connected)
 RunService.RenderStepped:Connect(function()
     if not portalA or not portalB then return end
-    local relA = portalA.Part.CFrame:Inverse() * Camera.CFrame
-    portalB.Cam.CFrame = portalB.Part.CFrame * relA
-    local relB = portalB.Part.CFrame:Inverse() * Camera.CFrame
-    portalA.Cam.CFrame = portalA.Part.CFrame * relB
+    portalB.Cam.CFrame = portalB.Part.CFrame * (portalA.Part.CFrame:Inverse() * Camera.CFrame)
+    portalA.Cam.CFrame = portalA.Part.CFrame * (portalB.Part.CFrame:Inverse() * Camera.CFrame)
 end)
