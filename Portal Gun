@@ -1,0 +1,117 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local player = Players.LocalPlayer
+
+-- Variables that stay active across resets
+local portalA, portalB = nil, nil
+local toggle = false
+local tpCooldown = false
+
+-- THE FUNCTION CONTAINING YOUR ORIGINAL SCRIPT LOGIC
+local function startScript(character)
+    -- 1. BUILDER UI (0.385 Y)
+    local sg = player.PlayerGui:FindFirstChild("PortalUI") or Instance.new("ScreenGui", player.PlayerGui)
+    sg.Name = "PortalUI"
+    sg.ResetOnSpawn = false -- Keeps UI from flickering on death
+    sg.IgnoreGuiInset = true
+    local crosshair = sg:FindFirstChild("Crosshair") or Instance.new("TextLabel", sg)
+    crosshair.Text = "+"
+    crosshair.Position = UDim2.new(0.5, 0, 0.385, 0)
+    crosshair.Size = UDim2.new(0, 10, 0, 10)
+    crosshair.BackgroundTransparency = 1
+    crosshair.TextColor3 = Color3.new(1, 1, 1)
+
+    -- 2. THE TOOL (GIVEN BACK ON RESET)
+    local tool = Instance.new("Tool", player.Backpack)
+    tool.Name = "Portal's Gun"
+    tool.RequiresHandle = false
+
+    -- 3. OPTIMIZED VIEWPORT CREATOR
+    local function createPortal(result, color)
+        local p = Instance.new("Part", workspace)
+        p.Size = Vector3.new(5, 7, 0.5)
+        p.CFrame = CFrame.new(result.Position + (result.Normal * 0.1), result.Position + result.Normal)
+        p.Anchored = true
+        p.Color = color
+        p.Material = Enum.Material.Glass
+        p.Transparency = 0.3
+
+        local sGui = Instance.new("SurfaceGui", p)
+        sGui.Face = Enum.NormalId.Front
+        
+        local vf = Instance.new("ViewportFrame", sGui)
+        vf.Size = UDim2.new(1, 0, 1, 0)
+        vf.BackgroundTransparency = 0
+        vf.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
+        
+        -- Fix for black viewport: Use a WorldModel
+        local wm = Instance.new("WorldModel", vf)
+        
+        local baseplate = workspace:FindFirstChild("Baseplate") or workspace:FindFirstChildOfClass("Part")
+        if baseplate then
+            local bClone = baseplate:Clone()
+            bClone.Parent = wm
+        end
+        
+        local vCam = Instance.new("Camera", vf)
+        vCam.FieldOfView = 70
+        vf.CurrentCamera = vCam
+        
+        return {Part = p, VF = vf, Cam = vCam}
+    end
+
+    -- 5. TELEPORT & GUN
+    local function teleport(target)
+        if tpCooldown then return end
+        tpCooldown = true
+        local root = character:WaitForChild("HumanoidRootPart")
+        if root then
+            root.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            -- FIXED: Added 1.5 height offset to stop floor ragdoll
+            root.CFrame = target.Part.CFrame * CFrame.new(0, 1.5, -7) * CFrame.Angles(0, math.rad(180), 0)
+        end
+        task.wait(0.75) -- Your 0.75s Cooldown
+        tpCooldown = false
+    end
+
+    tool.Activated:Connect(function()
+        local ray = Camera:ViewportPointToRay(Camera.ViewportSize.X * 0.5, Camera.ViewportSize.Y * 0.385)
+        local result = workspace:Raycast(ray.Origin, ray.Direction * 1000)
+
+        if result then
+            if not toggle then
+                if portalA then portalA.Part:Destroy() end
+                portalA = createPortal(result, Color3.fromRGB(0, 170, 255))
+            else
+                if portalB then portalB.Part:Destroy() end
+                portalB = createPortal(result, Color3.fromRGB(255, 132, 0))
+            end
+            toggle = not toggle
+            
+            if portalA and portalB then
+                portalA.Part.Touched:Connect(function(h) if h.Parent == character then teleport(portalB) end end)
+                portalB.Part.Touched:Connect(function(h) if h.Parent == character then teleport(portalA) end end)
+            end
+        end
+    end)
+end
+
+-- ANTI-DELETE FEATURE: Detects when you respawn and gives you the gun
+player.CharacterAdded:Connect(function(newChar)
+    startScript(newChar)
+end)
+
+-- Initial run so it works the first time you execute
+if player.Character then
+    startScript(player.Character)
+end
+
+-- 4. CAMERA SYNC LOOP (Outside the loop so it stays connected)
+RunService.RenderStepped:Connect(function()
+    if not portalA or not portalB then return end
+    local relA = portalA.Part.CFrame:Inverse() * Camera.CFrame
+    portalB.Cam.CFrame = portalB.Part.CFrame * relA
+    local relB = portalB.Part.CFrame:Inverse() * Camera.CFrame
+    portalA.Cam.CFrame = portalA.Part.CFrame * relB
+end)
