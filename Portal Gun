@@ -7,142 +7,212 @@ local player = Players.LocalPlayer
 local portalA, portalB = nil, nil
 local toggle = false
 local tpCooldown = false
+local touchConA, touchConB = nil, nil
 
-local function startScript(character)
-    local hum = character:WaitForChild("Humanoid")
-    local root = character:WaitForChild("HumanoidRootPart")
-    
-    local sg = player.PlayerGui:FindFirstChild("PortalUI") or Instance.new("ScreenGui", player.PlayerGui)
-    sg.Name = "PortalUI"
-    sg.ResetOnSpawn = false
-    sg.IgnoreGuiInset = true
-    
-    local crosshair = sg:FindFirstChild("Crosshair") or Instance.new("TextLabel", sg)
-    crosshair.Text = "+"
-    crosshair.Position = UDim2.new(0.5, 0, 0.385, 0)
-    crosshair.Size = UDim2.new(0, 10, 0, 10)
-    crosshair.BackgroundTransparency = 1
-    crosshair.TextColor3 = Color3.new(1, 1, 1)
-
-    -- DUAL-COLOR TOOL VISUALS
-    local tool = Instance.new("Tool", player.Backpack)
-    tool.Name = "Portal's Gun"
-    tool.RequiresHandle = true 
-
-    local handle = Instance.new("Part")
-    handle.Name = "Handle"
-    handle.Size = Vector3.new(0.5, 0.5, 1)
-    handle.Transparency = 1 
-    handle.Parent = tool
-
-    local blueSide = Instance.new("Part", tool)
-    blueSide.Size = Vector3.new(0.5, 0.5, 0.5)
-    blueSide.Color = Color3.fromRGB(0, 170, 255)
-    blueSide.Material = Enum.Material.Neon
-    blueSide.CanCollide = false
-    local weldA = Instance.new("Weld", blueSide)
-    weldA.Part0 = handle; weldA.Part1 = blueSide; weldA.C0 = CFrame.new(0, 0, -0.25)
-
-    local orangeSide = Instance.new("Part", tool)
-    orangeSide.Size = Vector3.new(0.5, 0.5, 0.5)
-    orangeSide.Color = Color3.fromRGB(255, 132, 0)
-    orangeSide.Material = Enum.Material.Neon
-    orangeSide.CanCollide = false
-    local weldB = Instance.new("Weld", orangeSide)
-    weldB.Part0 = handle; weldB.Part1 = orangeSide; weldB.C0 = CFrame.new(0, 0, 0.25)
-
-    -- VIEWPORT
-    local function createPortal(result, color)
-        local p = Instance.new("Part", workspace)
-        p.Size = Vector3.new(5, 7, 0.5)
-        p.CFrame = CFrame.new(result.Position + (result.Normal * 0.1), result.Position + result.Normal)
-        p.Anchored = true
-        p.Color = color
-        p.Material = Enum.Material.Glass
-        p.Transparency = 0.3
-
-        local sGui = Instance.new("SurfaceGui", p)
-        sGui.Face = Enum.NormalId.Front
-        local vf = Instance.new("ViewportFrame", sGui)
-        vf.Size = UDim2.new(1, 0, 1, 0)
-        vf.BackgroundColor3 = Color3.fromRGB(150, 150, 150)
-        
-        local wm = Instance.new("WorldModel", vf)
-        local baseplate = workspace:FindFirstChild("Baseplate") or workspace:FindFirstChildOfClass("Part")
-        if baseplate then
-            local bClone = baseplate:Clone()
-            bClone.Parent = wm
-        end
-        
-        local vCam = Instance.new("Camera", vf)
-        vCam.FieldOfView = 70
-        vf.CurrentCamera = vCam
-        
-        return {Part = p, VF = vf, Cam = vCam}
-    end
-
-    -- TELEPORT LOGIC (LOOKING AT BACK + LOWER POWER)
-    local function teleport(target)
-        if tpCooldown then return end
-        tpCooldown = true
-        
-        if root and hum then
-            root.AssemblyLinearVelocity = Vector3.zero
-            
-            -- FIX: Rotation set so you are LOOKING AT THE PORTAL after teleporting
-            root.CFrame = target.Part.CFrame * CFrame.new(0, 1.8, -1.5) 
-            
-            -- LAUNCH: Lowered to 30 for a smoother ejection
-            task.wait() 
-            root.AssemblyLinearVelocity = target.Part.CFrame.LookVector * 30
-            
-            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-        end
-        
-        task.wait(0.75) -- Your 0.75s Cooldown
-        tpCooldown = false
-    end
-
-    -- SHOOTING FUNCTION
-    local function shoot()
-        local ray = Camera:ViewportPointToRay(Camera.ViewportSize.X * 0.5, Camera.ViewportSize.Y * 0.385)
-        local result = workspace:Raycast(ray.Origin, ray.Direction * 1000)
-
-        if result then
-            if not toggle then
-                if portalA then portalA.Part:Destroy() end
-                portalA = createPortal(result, Color3.fromRGB(0, 170, 255))
-            else
-                if portalB then portalB.Part:Destroy() end
-                portalB = createPortal(result, Color3.fromRGB(255, 132, 0))
-            end
-            toggle = not toggle
-            
-            if portalA and portalB then
-                portalA.Part.Touched:Connect(function(h) if h.Parent == character then teleport(portalB) end end)
-                portalB.Part.Touched:Connect(function(h) if h.Parent == character then teleport(portalA) end end)
-            end
-        end
-    end
-
-    -- PC MOUSE CLICK SUPPORT
-    UserInputService.InputBegan:Connect(function(input, processed)
-        if processed then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 and tool.Parent == character then
-            shoot()
-        end
-    end)
-
-    -- MOBILE BUTTON SUPPORT
-    tool.Activated:Connect(shoot)
+local function clearPortals()
+	if portalA then portalA.Part:Destroy() portalA = nil end
+	if portalB then portalB.Part:Destroy() portalB = nil end
+	if touchConA then touchConA:Disconnect() touchConA = nil end
+	if touchConB then touchConB:Disconnect() touchConB = nil end
+	toggle = false
 end
 
--- ANTI-DELETE: Gives tool back on reset
+local function createPortal(result, color)
+	local p = Instance.new("Part", workspace)
+	p.Name = "PortalPart"
+	p.Size = Vector3.new(5, 7, 0.5)
+	p.CFrame = CFrame.new(result.Position + (result.Normal * 0.26), result.Position + result.Normal)
+	p.Anchored = true
+	p.CanCollide = false
+	p.CastShadow = false
+	p.Color = color
+	p.Material = Enum.Material.Glass
+	p.Transparency = 0.3
+
+	-- NEON BORDER
+	local borderParts = {
+		{size = Vector3.new(5.4, 0.3, 0.3), offset = CFrame.new(0, 3.65, 0)},
+		{size = Vector3.new(5.4, 0.3, 0.3), offset = CFrame.new(0, -3.65, 0)},
+		{size = Vector3.new(0.3, 7, 0.3), offset = CFrame.new(-2.65, 0, 0)},
+		{size = Vector3.new(0.3, 7, 0.3), offset = CFrame.new(2.65, 0, 0)},
+	}
+
+	for _, data in ipairs(borderParts) do
+		local border = Instance.new("Part", p)
+		border.Name = "PortalPart"
+		border.Size = data.size
+		border.CFrame = p.CFrame * data.offset
+		border.Anchored = true
+		border.CanCollide = false
+		border.CastShadow = false
+		border.Material = Enum.Material.Neon
+		border.Color = color
+		local weld = Instance.new("WeldConstraint", p)
+		weld.Part0 = p
+		weld.Part1 = border
+	end
+
+	-- LOW BRIGHTNESS GLOW
+	local light = Instance.new("PointLight", p)
+	light.Color = color
+	light.Brightness = 1.2
+	light.Range = 10
+
+	return { Part = p }
+end
+
+local function teleport(character, target)
+	if tpCooldown then return end
+	tpCooldown = true
+
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local hum = character:FindFirstChild("Humanoid")
+
+	if root and hum then
+		pcall(function()
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.CFrame = target.Part.CFrame * CFrame.new(0, 1.8, -2)
+			task.wait()
+			root.AssemblyLinearVelocity = target.Part.CFrame.LookVector * 28
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end)
+	end
+
+	task.wait(0.75)
+	tpCooldown = false
+end
+
+local function startScript(character)
+	clearPortals()
+
+	local hum = character:WaitForChild("Humanoid")
+
+	-- GUI
+	local sg = player.PlayerGui:FindFirstChild("PortalUI") or Instance.new("ScreenGui", player.PlayerGui)
+	sg.Name = "PortalUI"
+	sg.ResetOnSpawn = false
+	sg.IgnoreGuiInset = true
+
+	local oldCrosshair = sg:FindFirstChild("Crosshair")
+	if oldCrosshair then oldCrosshair:Destroy() end
+
+	local crosshair = Instance.new("TextLabel", sg)
+	crosshair.Name = "Crosshair"
+	crosshair.Text = "+"
+	crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+	crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+	crosshair.Size = UDim2.new(0, 16, 0, 16)
+	crosshair.BackgroundTransparency = 1
+	crosshair.TextColor3 = Color3.new(1, 1, 1)
+	crosshair.TextScaled = true
+	crosshair.Font = Enum.Font.GothamBold
+	crosshair.ZIndex = 10
+
+	-- HUD
+	local oldHud = sg:FindFirstChild("PortalHUD")
+	if oldHud then oldHud:Destroy() end
+
+	local hud = Instance.new("TextLabel", sg)
+	hud.Name = "PortalHUD"
+	hud.AnchorPoint = Vector2.new(0.5, 1)
+	hud.Position = UDim2.new(0.5, 0, 0.95, 0)
+	hud.Size = UDim2.new(0, 200, 0, 30)
+	hud.BackgroundTransparency = 1
+	hud.TextColor3 = Color3.fromRGB(0, 170, 255)
+	hud.Text = "Next: 🔵 Blue Portal"
+	hud.Font = Enum.Font.GothamBold
+	hud.TextSize = 16
+	hud.ZIndex = 10
+
+	-- TOOL
+	local oldTool = player.Backpack:FindFirstChild("Portal Gun")
+	if oldTool then oldTool:Destroy() end
+
+	local tool = Instance.new("Tool", player.Backpack)
+	tool.Name = "Portal Gun"
+	tool.RequiresHandle = true
+	tool.ToolTip = "Left click to place portals"
+
+	local handle = Instance.new("Part", tool)
+	handle.Name = "Handle"
+	handle.Size = Vector3.new(0.3, 0.6, 1.2)
+	handle.Transparency = 1
+	handle.CanCollide = false
+
+	local blueSide = Instance.new("Part", tool)
+	blueSide.Size = Vector3.new(0.3, 0.3, 0.6)
+	blueSide.Color = Color3.fromRGB(0, 170, 255)
+	blueSide.Material = Enum.Material.Neon
+	blueSide.CanCollide = false
+	local wA = Instance.new("Weld", handle)
+	wA.Part0 = handle wA.Part1 = blueSide wA.C0 = CFrame.new(0, 0, -0.4)
+
+	local orangeSide = Instance.new("Part", tool)
+	orangeSide.Size = Vector3.new(0.3, 0.3, 0.6)
+	orangeSide.Color = Color3.fromRGB(255, 132, 0)
+	orangeSide.Material = Enum.Material.Neon
+	orangeSide.CanCollide = false
+	local wB = Instance.new("Weld", handle)
+	wB.Part0 = handle wB.Part1 = orangeSide wB.C0 = CFrame.new(0, 0, 0.4)
+
+	-- SHOOT
+	local function shoot()
+		local vp = Camera.ViewportSize
+		local ray = Camera:ViewportPointToRay(vp.X * 0.5, vp.Y * 0.5)
+
+		local ignore = {character}
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj.Name == "PortalPart" then table.insert(ignore, obj) end
+		end
+
+		local params = RaycastParams.new()
+		params.FilterDescendantsInstances = ignore
+		params.FilterType = Enum.RaycastFilterType.Exclude
+
+		local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+		if not result then return end
+
+		if not toggle then
+			if portalA then portalA.Part:Destroy() portalA = nil end
+			portalA = createPortal(result, Color3.fromRGB(0, 170, 255))
+			hud.Text = "Next: 🟠 Orange Portal"
+			hud.TextColor3 = Color3.fromRGB(255, 132, 0)
+		else
+			if portalB then portalB.Part:Destroy() portalB = nil end
+			portalB = createPortal(result, Color3.fromRGB(255, 132, 0))
+			hud.Text = "Next: 🔵 Blue Portal"
+			hud.TextColor3 = Color3.fromRGB(0, 170, 255)
+		end
+		toggle = not toggle
+
+		if touchConA then touchConA:Disconnect() touchConA = nil end
+		if touchConB then touchConB:Disconnect() touchConB = nil end
+
+		if portalA and portalB then
+			touchConA = portalA.Part.Touched:Connect(function(h)
+				if h.Parent == character and h.Name ~= "PortalPart" then
+					teleport(character, portalB)
+				end
+			end)
+			touchConB = portalB.Part.Touched:Connect(function(h)
+				if h.Parent == character and h.Name ~= "PortalPart" then
+					teleport(character, portalA)
+				end
+			end)
+		end
+	end
+
+	-- PC
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 and tool.Parent == character then
+			shoot()
+		end
+	end)
+
+	-- Mobile
+	tool.Activated:Connect(shoot)
+end
+
 player.CharacterAdded:Connect(startScript)
 if player.Character then startScript(player.Character) end
-
-RunService.RenderStepped:Connect(function()
-    if not portalA or not portalB then return end
-    portalB.Cam.CFrame = portalB.Part.CFrame * (portalA.Part.CFrame:Inverse() * Camera.CFrame)
-    portalA.Cam.CFrame = portalA.Part.CFrame * (portalB.Part.CFrame:Inverse() * Camera.CFrame)
-end)
