@@ -1,0 +1,258 @@
+-- ========================================================
+-- ANAN's Wallhop Script (Ultra Fast Flick & Return)
+-- ========================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Clean up existing GUI if re-executed
+local guiName = "ANAN_Wallhop_GUI"
+local targetParent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+
+if targetParent:FindFirstChild(guiName) then
+    targetParent[guiName]:Destroy()
+end
+
+-- ========================================================
+-- CONFIGURABLE SETTINGS
+-- ========================================================
+local wallhopEnabled = false
+local lastHopTime = 0
+local hopCooldown = 0.3   -- Cooldown set to 0.3s
+local checkDistance = 2   -- Distance set to 2 studs
+local airjumpForce = 55   -- Strong upward velocity boost force
+
+-- MAXIMUM ROTATION SPEED SETTINGS
+local stepAngleDegrees = 10.5 -- Changed to 10.5° steps
+local totalAngleDegrees = 45
+
+-- ========================================================
+-- THICK GUI CREATION
+-- ========================================================
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = guiName
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = targetParent
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 230, 0, 65)
+MainFrame.Position = UDim2.new(0.5, -115, 0.2, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = MainFrame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Thickness = 3.5
+UIStroke.Color = Color3.fromRGB(80, 80, 95)
+UIStroke.Parent = MainFrame
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Size = UDim2.new(1, -12, 1, -12)
+ToggleButton.Position = UDim2.new(0, 6, 0, 6)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+ToggleButton.Text = "ANAN's wallhop: off"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.TextSize = 15
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.Parent = MainFrame
+
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 9)
+ButtonCorner.Parent = ToggleButton
+
+-- ========================================================
+-- DRAGGABLE LOGIC (Touch & Mouse Support)
+-- ========================================================
+
+local dragging = false
+local dragInput, dragStart, startPos
+
+local function updateInput(input)
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateInput(input)
+    end
+end)
+
+-- ========================================================
+-- TOGGLE SYSTEM
+-- ========================================================
+
+ToggleButton.MouseButton1Click:Connect(function()
+    wallhopEnabled = not wallhopEnabled
+
+    if wallhopEnabled then
+        ToggleButton.Text = "ANAN's wallhop: on"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(45, 170, 85)
+    else
+        ToggleButton.Text = "ANAN's wallhop: off"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+    end
+end)
+
+-- ========================================================
+-- ENTITY / HUMANOID FILTER
+-- ========================================================
+
+local function isEntity(part)
+    if not part then return false end
+    
+    local ancestorModel = part:FindFirstAncestorOfClass("Model")
+    if ancestorModel then
+        if ancestorModel:FindFirstChildOfClass("Humanoid") or ancestorModel:FindFirstChild("HumanoidRootPart") then
+            return true
+        end
+    end
+    return false
+end
+
+-- ========================================================
+-- WALLHOP DETECTION (MULTI-PART STACK FILTER)
+-- ========================================================
+
+local function isWallhopWall(root, dir)
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {root.Parent}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.RespectCanCollide = false -- Detects uncollidable parts
+
+    -- Scan 3 height levels: Feet, Torso, and Head
+    local feetOrigin = root.Position - Vector3.new(0, 1.5, 0)
+    local torsoOrigin = root.Position
+    local headOrigin = root.Position + Vector3.new(0, 1.5, 0)
+
+    local feetHit = workspace:Raycast(feetOrigin, dir * checkDistance, rayParams)
+    local torsoHit = workspace:Raycast(torsoOrigin, dir * checkDistance, rayParams)
+    local headHit = workspace:Raycast(headOrigin, dir * checkDistance, rayParams)
+
+    local feetPart = (feetHit and not isEntity(feetHit.Instance)) and feetHit.Instance or nil
+    local torsoPart = (torsoHit and not isEntity(torsoHit.Instance)) and torsoHit.Instance or nil
+    local headPart = (headHit and not isEntity(headHit.Instance)) and headHit.Instance or nil
+
+    -- Vertical pairs check
+    local verticalPairs = {
+        {feetPart, torsoPart},
+        {torsoPart, headPart},
+        {feetPart, headPart}
+    }
+
+    -- ONLY trigger if two DIFFERENT parts are stacked vertically on each other
+    for _, pair in ipairs(verticalPairs) do
+        local p1, p2 = pair[1], pair[2]
+        if p1 and p2 and p1 ~= p2 then
+            return true -- Found two distinct stacked parts
+        end
+    end
+
+    return false -- Ignores single 1-part walls or empty space
+end
+
+-- ========================================================
+-- AUTOMATIC HEARTBEAT LOOP
+-- ========================================================
+
+RunService.Heartbeat:Connect(function()
+    if not wallhopEnabled then return end
+    if os.clock() - lastHopTime < hopCooldown then return end
+
+    local char = LocalPlayer.Character
+    if not char then return end
+
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not root or not humanoid or humanoid.Health <= 0 then return end
+
+    -- Directions around character
+    local look = root.CFrame.LookVector
+    local right = root.CFrame.RightVector
+
+    local directions = {
+        look, -look, right, -right,
+        (look + right).Unit, (look - right).Unit,
+        (-look + right).Unit, (-look - right).Unit
+    }
+
+    local validWallhopWall = false
+    for _, dir in ipairs(directions) do
+        if isWallhopWall(root, dir) then
+            validWallhopWall = true
+            break
+        end
+    end
+
+    -- Trigger airjump boost + FLICK RIGHT AND FLICK BACK
+    if validWallhopWall then
+        lastHopTime = os.clock()
+
+        -- Force strong upwards velocity instantly
+        local currentVel = root.AssemblyLinearVelocity
+        local targetY = math.max(humanoid.JumpPower > 0 and humanoid.JumpPower or airjumpForce, airjumpForce)
+        root.AssemblyLinearVelocity = Vector3.new(currentVel.X, targetY, currentVel.Z)
+
+        -- Change state to Jumping
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+
+        -- Fast Step Rotation Loop (Rotate Right -> Rotate Back Left)
+        task.spawn(function()
+            local camera = workspace.CurrentCamera
+            if camera and root then
+                local stepAngle = math.rad(stepAngleDegrees)
+                local totalSteps = math.floor(totalAngleDegrees / stepAngleDegrees)
+
+                -- 1. Fast step flick right keeping camera pitch locked
+                for i = 1, totalSteps do
+                    if camera and root and humanoid and humanoid.Health > 0 then
+                        local pitch, yaw = camera.CFrame:ToOrientation()
+                        camera.CFrame = CFrame.new(camera.CFrame.Position) * CFrame.fromEulerAnglesYXZ(pitch, yaw - stepAngle, 0)
+                        root.CFrame = root.CFrame * CFrame.Angles(0, -stepAngle, 0)
+                    end
+                    task.wait()
+                end
+
+                -- 2. Fast step flick back left (-45° back to origin) keeping camera pitch locked
+                for i = 1, totalSteps do
+                    if camera and root and humanoid and humanoid.Health > 0 then
+                        local pitch, yaw = camera.CFrame:ToOrientation()
+                        camera.CFrame = CFrame.new(camera.CFrame.Position) * CFrame.fromEulerAnglesYXZ(pitch, yaw + stepAngle, 0)
+                        root.CFrame = root.CFrame * CFrame.Angles(0, stepAngle, 0)
+                    end
+                    task.wait()
+                end
+            end
+        end)
+    end
+end)
