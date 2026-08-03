@@ -1,0 +1,363 @@
+-- c00lGui By @ANAN8976850 On Roblox (Me)
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local targetParent
+if gethui then
+    targetParent = gethui()
+else
+    local success = pcall(function()
+        local _ = CoreGui.Name
+    end)
+    if success then
+        targetParent = CoreGui
+    else
+        targetParent = Players.LocalPlayer:WaitForChild("PlayerGui")
+    end
+end
+
+if targetParent:FindFirstChild("c00lGui") then
+    targetParent.c00lGui:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "c00lGui"
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = targetParent
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MainFrame.BackgroundTransparency = 0
+MainFrame.BorderSizePixel = 4
+MainFrame.BorderColor3 = Color3.fromRGB(255, 0, 0)
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.Size = UDim2.new(0.95, 0, 0.85, 0)
+MainFrame.ClipsDescendants = true
+MainFrame.Active = true
+
+local AspectRatio = Instance.new("UIAspectRatioConstraint")
+AspectRatio.AspectRatio = 1.129
+AspectRatio.AspectType = Enum.AspectType.FitWithinMaxSize
+AspectRatio.DominantAxis = Enum.DominantAxis.Height
+AspectRatio.Parent = MainFrame
+
+local linesFolder = Instance.new("Folder")
+linesFolder.Name = "LinesFolder"
+linesFolder.Parent = MainFrame
+
+local activeDots = {}
+local linesPool = {}
+
+local function getLine()
+    for _, line in ipairs(linesPool) do
+        if not line.Visible then
+            return line
+        end
+    end
+    local line = Instance.new("Frame")
+    line.Name = "ConnectionLine"
+    line.Parent = linesFolder
+    line.AnchorPoint = Vector2.new(0.5, 0.5)
+    line.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    line.BorderSizePixel = 0
+    line.ZIndex = 1
+    line.Visible = false
+    table.insert(linesPool, line)
+    return line
+end
+
+task.spawn(function()
+    local random = Random.new()
+    
+    while task.wait(0.18) do
+        if not MainFrame or not MainFrame.Parent then break end
+        
+        local dot = Instance.new("Frame")
+        dot.Name = "BackgroundDot"
+        dot.Parent = MainFrame
+        dot.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        dot.BorderSizePixel = 0
+        
+        local dotSize = random:NextInteger(1, 2)
+        dot.Size = UDim2.new(0, dotSize, 0, dotSize)
+        dot.ZIndex = 1
+        
+        local startX = random:NextNumber(0, 1)
+        dot.Position = UDim2.new(startX, 0, 1, 0)
+        
+        local floatTime = random:NextNumber(3, 6)
+        
+        table.insert(activeDots, dot)
+        
+        local tweenInfo = TweenInfo.new(floatTime, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
+        local tween = TweenService:Create(dot, tweenInfo, {
+            Position = UDim2.new(startX, 0, 0, 0),
+            BackgroundTransparency = 1
+        })
+        
+        tween:Play()
+        
+        tween.Completed:Connect(function()
+            local idx = table.find(activeDots, dot)
+            if idx then table.remove(activeDots, idx) end
+            dot:Destroy()
+        end)
+    end
+end)
+
+local DISTANCE_THRESHOLD = 35
+local THRESHOLD_SQ = DISTANCE_THRESHOLD * DISTANCE_THRESHOLD
+
+RunService.Heartbeat:Connect(function()
+    if not MainFrame or not MainFrame.Parent then return end
+    
+    for _, line in ipairs(linesPool) do
+        line.Visible = false
+    end
+    
+    local mainPos = MainFrame.AbsolutePosition
+    local mainSize = MainFrame.AbsoluteSize
+    local numDots = #activeDots
+    if numDots < 2 then return end
+    
+    local cachedPos = {}
+    for i = 1, numDots do
+        local dot = activeDots[i]
+        if dot and dot.Parent then
+            local pos = dot.AbsolutePosition - mainPos + (dot.AbsoluteSize / 2)
+            if pos.X >= 0 and pos.X <= mainSize.X and pos.Y >= 0 and pos.Y <= mainSize.Y then
+                cachedPos[i] = pos
+            end
+        end
+    end
+    
+    for i = 1, numDots do
+        local posA = cachedPos[i]
+        if posA then
+            for j = i + 1, numDots do
+                local posB = cachedPos[j]
+                if posB then
+                    local dx = posB.X - posA.X
+                    local dy = posB.Y - posA.Y
+                    local distSq = dx * dx + dy * dy
+                    
+                    if distSq <= THRESHOLD_SQ then
+                        local dist = math.sqrt(distSq)
+                        local line = getLine()
+                        local mid = (posA + posB) / 2
+                        local angle = math.deg(math.atan2(dy, dx))
+                        
+                        line.Size = UDim2.new(0, dist, 0, 1)
+                        line.Position = UDim2.new(0, mid.X, 0, mid.Y)
+                        line.Rotation = angle
+                        line.BackgroundTransparency = dist / DISTANCE_THRESHOLD
+                        line.Visible = true
+                    end
+                end
+            end
+        end
+    end
+end)
+
+do
+    local gui = MainFrame
+    local dragging
+    local dragInput
+    local dragStart
+    local startPos
+     
+    local function update(input)
+        local delta = input.Position - dragStart
+        local dragTime = 0.15 
+        
+        local goalPosition = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X, 
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+        
+        local tween = TweenService:Create(gui, TweenInfo.new(dragTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = goalPosition})
+        tween:Play()
+    end
+     
+    gui.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = gui.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+     
+    gui.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+     
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+end
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Parent = MainFrame
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.AnchorPoint = Vector2.new(0.5, 0)
+TitleLabel.Position = UDim2.new(0.43, 0, 0.03, 0)
+TitleLabel.Size = UDim2.new(0.72, 0, 0.1, 0)
+TitleLabel.Font = Enum.Font.SourceSansBold
+TitleLabel.Text = "c00lGui By @ANAN8976850"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+TitleLabel.TextScaled = true
+TitleLabel.ZIndex = 2
+
+local CloseButton = Instance.new("TextButton")
+CloseButton.Parent = MainFrame
+CloseButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+CloseButton.BackgroundTransparency = 0
+CloseButton.BorderSizePixel = 4
+CloseButton.BorderColor3 = Color3.fromRGB(255, 0, 0)
+CloseButton.AnchorPoint = Vector2.new(1, 0)
+CloseButton.Position = UDim2.new(0.96, 0, 0.03, 0)
+CloseButton.Size = UDim2.new(0.09, 0, 0.1, 0)
+CloseButton.Font = Enum.Font.SourceSansBold
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 0, 0)
+CloseButton.TextScaled = true
+CloseButton.ZIndex = 2
+
+CloseButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+local function createButton(name, text, scaleSize, scalePosition)
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Parent = MainFrame
+    button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    button.BackgroundTransparency = 0
+    button.BorderSizePixel = 4
+    button.BorderColor3 = Color3.fromRGB(255, 0, 0)
+    button.AnchorPoint = Vector2.new(0.5, 0.5)
+    button.Position = scalePosition
+    button.Size = scaleSize
+    button.Font = Enum.Font.SourceSansSemibold
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(255, 0, 0)
+    button.TextScaled = true
+    button.ZIndex = 2
+
+    task.spawn(function()
+        task.wait(0.05) 
+        
+        local GROW_FACTOR = 1.15     
+        local ANIMATION_SPEED = 0.11
+
+        local originalSize = button.Size
+
+        local enlargedSize = UDim2.new(
+            originalSize.X.Scale * GROW_FACTOR, 0,
+            originalSize.Y.Scale * GROW_FACTOR, 0
+        )
+
+        local tweenInfo = TweenInfo.new(ANIMATION_SPEED, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+        local growTween = TweenService:Create(button, tweenInfo, {Size = enlargedSize})
+        local shrinkTween = TweenService:Create(button, tweenInfo, {Size = originalSize})
+
+        button.MouseEnter:Connect(function()
+            growTween:Play()
+        end)
+
+        button.MouseLeave:Connect(function()
+            shrinkTween:Play()
+        end)
+    end)
+
+    return button
+end
+
+local BlackHoleBtn = createButton("BlackHole", "BlackHole", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.27, 0, 0.25, 0))
+BlackHoleBtn.MouseButton1Click:Connect(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/Bac0nHck/Scripts/main/BringFlingPlayers"))()
+end)
+
+local PortalsGunBtn = createButton("PortalsGun", "Portals Gun", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.73, 0, 0.25, 0))
+PortalsGunBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        local notifyFrame = Instance.new("Frame")
+        notifyFrame.Name = "NotifyFrame"
+        notifyFrame.Parent = ScreenGui
+        notifyFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        notifyFrame.Position = UDim2.new(0.5, 0, 0.35, 0)
+        notifyFrame.Size = UDim2.new(0.5, 0, 0.28, 0)
+        notifyFrame.BackgroundColor3 = Color3.fromRGB(135, 206, 250)
+        notifyFrame.BorderSizePixel = 0
+        notifyFrame.ZIndex = 10
+
+        local uiCorner = Instance.new("UICorner")
+        uiCorner.CornerRadius = UDim.new(0, 12)
+        uiCorner.Parent = notifyFrame
+
+        local notifyText = Instance.new("TextLabel")
+        notifyText.Parent = notifyFrame
+        notifyText.AnchorPoint = Vector2.new(0.5, 0.5)
+        notifyText.Position = UDim2.new(0.5, 0, 0.5, 0)
+        notifyText.Size = UDim2.new(0.9, 0, 0.8, 0)
+        notifyText.BackgroundTransparency = 1
+        notifyText.Font = Enum.Font.GothamBold
+        notifyText.Text = "Portals Gun Script By @ANAN8976850 On Roblox"
+        notifyText.TextColor3 = Color3.fromRGB(255, 255, 255)
+        notifyText.TextScaled = true
+        notifyText.ZIndex = 11
+
+        local colorTweenInfo = TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+        colorTweenInfo = TweenService:Create(notifyFrame, colorTweenInfo, {BackgroundColor3 = Color3.fromRGB(255, 180, 100)})
+        colorTweenInfo:Play()
+
+        task.spawn(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/ANAN89768/ANAN8976850/refs/heads/main/Portal%20Gun"))()
+        end)
+
+        task.wait(4.5)
+
+        colorTweenInfo:Cancel()
+
+        local fadeInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local fadeFrame = TweenService:Create(notifyFrame, fadeInfo, {BackgroundTransparency = 1})
+        local fadeText = TweenService:Create(notifyText, fadeInfo, {TextTransparency = 1})
+
+        fadeFrame:Play()
+        fadeText:Play()
+
+        fadeFrame.Completed:Connect(function()
+            notifyFrame:Destroy()
+        end)
+    end)
+end)
+
+createButton("empty", "empty", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.27, 0, 0.42, 0))
+createButton("empty", "empty", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.73, 0, 0.42, 0))
+
+createButton("empty", "empty", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.27, 0, 0.59, 0))
+createButton("empty", "empty", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.73, 0, 0.59, 0))
+
+createButton("LeftArrow", "<", UDim2.new(0.18, 0, 0.11, 0), UDim2.new(0.40, 0, 0.77, 0))
+createButton("RightArrow", ">", UDim2.new(0.18, 0, 0.11, 0), UDim2.new(0.60, 0, 0.77, 0))
