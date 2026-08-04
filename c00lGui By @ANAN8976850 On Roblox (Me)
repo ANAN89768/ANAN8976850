@@ -1,4 +1,4 @@
--- c00lGui By @ANAN8976850 On Roblox (Me)
+-- c00lGui By @ANAN8976850 On Roblox
 
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
@@ -353,7 +353,12 @@ PortalsGunBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
-createButton("empty", "empty", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.27, 0, 0.42, 0))
+-- Button 3: Infinite Yield (EdgeIY Source)
+local InfiniteYieldBtn = createButton("InfiniteYield", "Infinite Yield", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.27, 0, 0.42, 0))
+InfiniteYieldBtn.MouseButton1Click:Connect(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+end)
+
 createButton("empty", "empty", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.73, 0, 0.42, 0))
 
 createButton("empty", "empty", UDim2.new(0.44, 0, 0.13, 0), UDim2.new(0.27, 0, 0.59, 0))
