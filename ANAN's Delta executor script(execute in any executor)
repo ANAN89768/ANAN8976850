@@ -1,0 +1,915 @@
+-- ============================================
+-- DELTA EXECUTOR UI (WITH INTRO CREDIT SCREEN)
+-- ============================================
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+
+-- ============================================
+-- 0. INTRO CREDIT GUI
+-- ============================================
+local CreditGui = Instance.new("ScreenGui")
+CreditGui.Name = "DeltaCreditUI"
+CreditGui.ResetOnSpawn = false
+CreditGui.IgnoreGuiInset = true
+CreditGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+CreditGui.Parent = (gethui and gethui()) or CoreGui
+
+local CreditLabel = Instance.new("TextLabel")
+CreditLabel.Name = "CreditLabel"
+CreditLabel.Size = UDim2.new(1, 0, 1, 0)
+CreditLabel.Position = UDim2.new(0, 0, 0, 0)
+CreditLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+CreditLabel.BackgroundTransparency = 0
+CreditLabel.Text = "Credit: @ANAN8976850 on Roblox"
+CreditLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+CreditLabel.Font = Enum.Font.GothamBold
+CreditLabel.TextSize = 22
+CreditLabel.Active = true
+CreditLabel.ZIndex = 100
+CreditLabel.Parent = CreditGui
+
+local CreditStroke = Instance.new("UIStroke")
+CreditStroke.Thickness = 2.5
+CreditStroke.Color = Color3.fromRGB(0, 0, 0)
+CreditStroke.Parent = CreditLabel
+
+-- ============================================
+-- MAIN DELTA GUI SETUP
+-- ============================================
+local DeltaGui = Instance.new("ScreenGui")
+DeltaGui.Name = "RealDeltaUI_ScriptBlox"
+DeltaGui.ResetOnSpawn = false
+DeltaGui.IgnoreGuiInset = true
+DeltaGui.Parent = (gethui and gethui()) or CoreGui
+
+-- COLOR PALETTE
+local BG_DARK = Color3.fromRGB(15, 17, 24)
+local BG_CARD = Color3.fromRGB(24, 26, 38)
+local BG_SIDEBAR = Color3.fromRGB(12, 13, 19)
+local ACCENT_CYAN = Color3.fromRGB(48, 160, 255)
+local TEXT_WHITE = Color3.fromRGB(245, 245, 255)
+local TEXT_MUTED = Color3.fromRGB(140, 145, 165)
+
+-- Forward Declaration
+local MainContainer
+local ToggleBtn
+
+-- VISIBILITY FUNCTIONS
+local function OpenUI()
+    MainContainer.Visible = true
+    ToggleBtn.Visible = false
+end
+
+local function CloseUI()
+    MainContainer.Visible = false
+    ToggleBtn.Visible = true
+end
+
+-- 1. FLOATING TOGGLE ICON (UPDATED BACKGROUND COLOR)
+ToggleBtn = Instance.new("ImageButton")
+ToggleBtn.Name = "DeltaToggle"
+ToggleBtn.Size = UDim2.new(0, 46, 0, 46)
+ToggleBtn.Position = UDim2.new(0.5, -23, 0, 20)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(48, 50, 59)
+ToggleBtn.Image = "rbxasset://346198a25a773e996312c35efa1ae9b7/logo.png"
+ToggleBtn.ScaleType = Enum.ScaleType.Fit
+ToggleBtn.Visible = false -- HIDDEN UNTIL CREDIT SCREEN FINISHES
+ToggleBtn.Parent = DeltaGui
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(1, 0)
+ToggleCorner.Parent = ToggleBtn
+
+local ToggleStroke = Instance.new("UIStroke")
+ToggleStroke.Color = ACCENT_CYAN
+ToggleStroke.Thickness = 2
+ToggleStroke.Parent = ToggleBtn
+
+-- DRAGGING LOGIC
+local dragging = false
+local dragInput, dragStart, startPos
+local dragMoved = false
+
+local function updateDrag(input)
+    local delta = input.Position - dragStart
+    if delta.Magnitude > 5 then
+        dragMoved = true
+    end
+    ToggleBtn.Position = UDim2.new(
+        startPos.X.Scale, startPos.X.Offset + delta.X,
+        startPos.Y.Scale, startPos.Y.Offset + delta.Y
+    )
+end
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragMoved = false
+        dragStart = input.Position
+        startPos = ToggleBtn.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+ToggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateDrag(input)
+    end
+end)
+
+-- CREDIT TIMER & FADE PROCESS
+task.spawn(function()
+    task.wait(3.7) -- SHOW FOR 3.7 SECONDS
+    
+    local fadeInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tweenLabel = TweenService:Create(CreditLabel, fadeInfo, {
+        BackgroundTransparency = 1,
+        TextTransparency = 1
+    })
+    local tweenStroke = TweenService:Create(CreditStroke, fadeInfo, {
+        Transparency = 1
+    })
+    
+    tweenLabel:Play()
+    tweenStroke:Play()
+    
+    tweenLabel.Completed:Connect(function()
+        CreditGui:Destroy() -- DESTROY AFTER FADE
+        ToggleBtn.Visible = true -- SHOW EXECUTOR TOGGLE ICON
+    end)
+end)
+
+-- 2. MAIN CONTAINER & OVERLAY
+MainContainer = Instance.new("Frame")
+MainContainer.Name = "MainContainer"
+MainContainer.Size = UDim2.new(1, 0, 1, 0)
+MainContainer.Position = UDim2.new(0, 0, 0, 0)
+MainContainer.BackgroundTransparency = 1
+MainContainer.Visible = false
+MainContainer.Parent = DeltaGui
+
+local BgOverlay = Instance.new("TextLabel")
+BgOverlay.Name = "BgOverlay"
+BgOverlay.Size = UDim2.new(1, 0, 1, 0)
+BgOverlay.Position = UDim2.new(0, 0, 0, 0)
+BgOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+BgOverlay.BackgroundTransparency = 0.6
+BgOverlay.Text = ""
+BgOverlay.Active = false
+BgOverlay.ZIndex = 0
+BgOverlay.Parent = MainContainer
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    if not dragMoved then
+        OpenUI()
+    end
+end)
+
+-- 3. NAVIGATION SIDEBAR
+local SideBar = Instance.new("Frame")
+SideBar.Name = "SideBar"
+SideBar.Size = UDim2.new(0, 52, 1, 0)
+SideBar.Position = UDim2.new(1, -52, 0, 0)
+SideBar.BackgroundColor3 = BG_SIDEBAR
+SideBar.BorderSizePixel = 0
+SideBar.ZIndex = 5
+SideBar.Parent = MainContainer
+
+local SideLayout = Instance.new("UIListLayout")
+SideLayout.FillDirection = Enum.FillDirection.Vertical
+SideLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+SideLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+SideLayout.Padding = UDim.new(0, 10)
+SideLayout.Parent = SideBar
+
+local PageHolder = Instance.new("Frame")
+PageHolder.Name = "PageHolder"
+PageHolder.Size = UDim2.new(1, -62, 1, -20)
+PageHolder.Position = UDim2.new(0, 10, 0, 10)
+PageHolder.BackgroundTransparency = 1
+PageHolder.ZIndex = 2
+PageHolder.Parent = MainContainer
+
+local Pages = {}
+
+local function CreatePage(pageName)
+    local Page = Instance.new("Frame")
+    Page.Name = pageName
+    Page.Size = UDim2.new(1, 0, 1, 0)
+    Page.BackgroundTransparency = 1
+    Page.Visible = false
+    Page.Parent = PageHolder
+    Pages[pageName] = Page
+    return Page
+end
+
+local HomePage = CreatePage("Home")
+local EditorPage = CreatePage("Editor")
+local CloudPage = CreatePage("Cloud")
+local SettingsPage = CreatePage("Settings")
+local ConsolePage = CreatePage("Console")
+
+EditorPage.Visible = true
+
+local NavButtons = {}
+
+local function CreateNavButton(pageName, labelText, isDefault)
+    local Btn = Instance.new("TextButton")
+    Btn.Name = "Nav_" .. pageName
+    Btn.Size = UDim2.new(0, 42, 0, 36)
+    Btn.BackgroundColor3 = isDefault and ACCENT_CYAN or Color3.fromRGB(28, 30, 44)
+    Btn.Text = labelText
+    Btn.TextColor3 = TEXT_WHITE
+    Btn.Font = Enum.Font.GothamBold
+    Btn.TextSize = 9
+    Btn.ZIndex = 6
+    Btn.Parent = SideBar
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 8)
+    Corner.Parent = Btn
+    
+    NavButtons[pageName] = Btn
+    
+    if pageName ~= "Exit" then
+        Btn.MouseButton1Click:Connect(function()
+            for name, pageFrame in pairs(Pages) do
+                pageFrame.Visible = false
+            end
+            for name, navBtn in pairs(NavButtons) do
+                if name ~= "Exit" then
+                    navBtn.BackgroundColor3 = Color3.fromRGB(28, 30, 44)
+                end
+            end
+            Pages[pageName].Visible = true
+            Btn.BackgroundColor3 = ACCENT_CYAN
+        end)
+    end
+    
+    return Btn
+end
+
+local NavHome = CreateNavButton("Home", "HOME", false)
+local NavEditor = CreateNavButton("Editor", "EDIT", true)
+local NavCloud = CreateNavButton("Cloud", "CLOUD", false)
+local NavSettings = CreateNavButton("Settings", "SETT", false)
+local NavConsole = CreateNavButton("Console", ">_", false)
+local NavExit = CreateNavButton("Exit", "EXIT", false)
+
+NavExit.MouseButton1Click:Connect(function()
+    CloseUI()
+end)
+
+-- ============================================
+-- PAGE 1: EDITOR PAGE
+-- ============================================
+local LeftCards = Instance.new("Frame")
+LeftCards.Size = UDim2.new(0, 180, 1, 0)
+LeftCards.BackgroundTransparency = 1
+LeftCards.Parent = EditorPage
+
+local NetCard = Instance.new("Frame")
+NetCard.Size = UDim2.new(1, 0, 0, 80)
+NetCard.BackgroundColor3 = BG_CARD
+NetCard.Parent = LeftCards
+
+local NetCorner = Instance.new("UICorner")
+NetCorner.CornerRadius = UDim.new(0, 8)
+NetCorner.Parent = NetCard
+
+local NetTitle = Instance.new("TextLabel")
+NetTitle.Size = UDim2.new(1, -16, 0, 22)
+NetTitle.Position = UDim2.new(0, 10, 0, 6)
+NetTitle.BackgroundTransparency = 1
+NetTitle.Text = "Network"
+NetTitle.TextColor3 = TEXT_WHITE
+NetTitle.Font = Enum.Font.GothamBold
+NetTitle.TextSize = 13
+NetTitle.TextXAlignment = Enum.TextXAlignment.Left
+NetTitle.Parent = NetCard
+
+local NetSub = Instance.new("TextLabel")
+NetSub.Size = UDim2.new(1, -16, 0, 14)
+NetSub.Position = UDim2.new(0, 10, 0, 26)
+NetSub.BackgroundTransparency = 1
+NetSub.Text = "Client status information"
+NetSub.TextColor3 = TEXT_MUTED
+NetSub.Font = Enum.Font.Gotham
+NetSub.TextSize = 10
+NetSub.TextXAlignment = Enum.TextXAlignment.Left
+NetSub.Parent = NetCard
+
+local StatsLabel = Instance.new("TextLabel")
+StatsLabel.Size = UDim2.new(1, -16, 0, 26)
+StatsLabel.Position = UDim2.new(0, 10, 0, 46)
+StatsLabel.BackgroundTransparency = 1
+StatsLabel.Text = "60 FPS   45 MS Ping   " .. #Players:GetPlayers() .. " players"
+StatsLabel.TextColor3 = ACCENT_CYAN
+StatsLabel.Font = Enum.Font.GothamMedium
+StatsLabel.TextSize = 10
+StatsLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatsLabel.Parent = NetCard
+
+local FeatCard = Instance.new("Frame")
+FeatCard.Size = UDim2.new(1, 0, 0, 125)
+FeatCard.Position = UDim2.new(0, 0, 0, 90)
+FeatCard.BackgroundColor3 = BG_CARD
+FeatCard.Parent = LeftCards
+
+local FeatCorner = Instance.new("UICorner")
+FeatCorner.CornerRadius = UDim.new(0, 8)
+FeatCorner.Parent = FeatCard
+
+local FeatTitle = Instance.new("TextLabel")
+FeatTitle.Size = UDim2.new(1, -16, 0, 22)
+FeatTitle.Position = UDim2.new(0, 10, 0, 6)
+FeatTitle.BackgroundTransparency = 1
+FeatTitle.Text = "Check out this script!"
+FeatTitle.TextColor3 = TEXT_WHITE
+FeatTitle.Font = Enum.Font.GothamBold
+FeatTitle.TextSize = 12
+FeatTitle.TextXAlignment = Enum.TextXAlignment.Left
+FeatTitle.Parent = FeatCard
+
+local FeatDesc = Instance.new("TextLabel")
+FeatDesc.Size = UDim2.new(1, -16, 0, 50)
+FeatDesc.Position = UDim2.new(0, 10, 0, 28)
+FeatDesc.BackgroundTransparency = 1
+FeatDesc.Text = "INFINITE YIELD v6.4.2\nAn admin script dedicated to provide the necessities of exploiting."
+FeatDesc.TextColor3 = TEXT_MUTED
+FeatDesc.Font = Enum.Font.Gotham
+FeatDesc.TextSize = 9
+FeatDesc.TextWrapped = true
+FeatDesc.TextXAlignment = Enum.TextXAlignment.Left
+FeatDesc.TextYAlignment = Enum.TextYAlignment.Top
+FeatDesc.Parent = FeatCard
+
+local LoadIYBtn = Instance.new("TextButton")
+LoadIYBtn.Size = UDim2.new(1, -20, 0, 26)
+LoadIYBtn.Position = UDim2.new(0, 10, 1, -32)
+LoadIYBtn.BackgroundColor3 = ACCENT_CYAN
+LoadIYBtn.Text = "RUN INFINITE YIELD"
+LoadIYBtn.TextColor3 = TEXT_WHITE
+LoadIYBtn.Font = Enum.Font.GothamBold
+LoadIYBtn.TextSize = 10
+LoadIYBtn.Parent = FeatCard
+
+local IYCorner = Instance.new("UICorner")
+IYCorner.CornerRadius = UDim.new(0, 6)
+IYCorner.Parent = LoadIYBtn
+
+LoadIYBtn.MouseButton1Click:Connect(function()
+    if loadstring then
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+    end
+end)
+
+local EditorFrame = Instance.new("Frame")
+EditorFrame.Size = UDim2.new(1, -190, 1, 0)
+EditorFrame.Position = UDim2.new(0, 190, 0, 0)
+EditorFrame.BackgroundColor3 = BG_CARD
+EditorFrame.Parent = EditorPage
+
+local EditorCorner = Instance.new("UICorner")
+EditorCorner.CornerRadius = UDim.new(0, 8)
+EditorCorner.Parent = EditorFrame
+
+local TabHeader = Instance.new("Frame")
+TabHeader.Size = UDim2.new(1, 0, 0, 30)
+TabHeader.BackgroundTransparency = 1
+TabHeader.Parent = EditorFrame
+
+local TabBtn = Instance.new("TextButton")
+TabBtn.Size = UDim2.new(0, 100, 0, 22)
+TabBtn.Position = UDim2.new(0, 8, 0, 4)
+TabBtn.BackgroundColor3 = BG_DARK
+TabBtn.Text = "script1.lua  X"
+TabBtn.TextColor3 = TEXT_WHITE
+TabBtn.Font = Enum.Font.Gotham
+TabBtn.TextSize = 10
+TabBtn.Parent = TabHeader
+
+local TabCorner = Instance.new("UICorner")
+TabCorner.CornerRadius = UDim.new(0, 4)
+TabCorner.Parent = TabBtn
+
+local CodeBox = Instance.new("TextBox")
+CodeBox.Size = UDim2.new(1, -20, 1, -75)
+CodeBox.Position = UDim2.new(0, 10, 0, 32)
+CodeBox.BackgroundTransparency = 1
+CodeBox.Text = 'print("Delta Executor Loaded!")'
+CodeBox.TextColor3 = TEXT_WHITE
+CodeBox.Font = Enum.Font.Code
+CodeBox.TextSize = 12
+CodeBox.TextXAlignment = Enum.TextXAlignment.Left
+CodeBox.TextYAlignment = Enum.TextYAlignment.Top
+CodeBox.ClearTextOnFocus = false
+CodeBox.MultiLine = true
+CodeBox.Parent = EditorFrame
+
+local ActionDock = Instance.new("Frame")
+ActionDock.Size = UDim2.new(1, -16, 0, 30)
+ActionDock.Position = UDim2.new(0, 8, 1, -36)
+ActionDock.BackgroundTransparency = 1
+ActionDock.Parent = EditorFrame
+
+local DockLayout = Instance.new("UIListLayout")
+DockLayout.FillDirection = Enum.FillDirection.Horizontal
+DockLayout.Padding = UDim.new(0, 6)
+DockLayout.Parent = ActionDock
+
+local function CreateActionButton(text, sizeScale)
+    local Btn = Instance.new("TextButton")
+    Btn.Size = UDim2.new(sizeScale, -4, 1, 0)
+    Btn.BackgroundColor3 = BG_DARK
+    Btn.Text = text
+    Btn.TextColor3 = TEXT_WHITE
+    Btn.Font = Enum.Font.GothamBold
+    Btn.TextSize = 10
+    Btn.Parent = ActionDock
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 6)
+    Corner.Parent = Btn
+    
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = ACCENT_CYAN
+    Stroke.Thickness = 1
+    Stroke.Parent = Btn
+    
+    return Btn
+end
+
+local ExecBtn = CreateActionButton("EXECUTE", 0.30)
+local ClearBtn = CreateActionButton("CLEAR", 0.25)
+local PasteExecBtn = CreateActionButton("EXECUTE CLIPBOARD", 0.45)
+
+ExecBtn.MouseButton1Click:Connect(function()
+    if loadstring then
+        local func = loadstring(CodeBox.Text)
+        if func then task.spawn(func) end
+    end
+end)
+
+ClearBtn.MouseButton1Click:Connect(function()
+    CodeBox.Text = ""
+end)
+
+PasteExecBtn.MouseButton1Click:Connect(function()
+    if getclipboard and loadstring then
+        local code = getclipboard()
+        if code then
+            CodeBox.Text = code
+            local func = loadstring(code)
+            if func then task.spawn(func) end
+        end
+    end
+end)
+
+-- ============================================
+-- PAGE 2: HOME PAGE (LOCAL SCRIPT HUB)
+-- ============================================
+local AddScriptFrame = Instance.new("Frame")
+AddScriptFrame.Size = UDim2.new(1, 0, 0, 36)
+AddScriptFrame.BackgroundTransparency = 1
+AddScriptFrame.Parent = HomePage
+
+local NewNameBox = Instance.new("TextBox")
+NewNameBox.Size = UDim2.new(0.35, -4, 1, 0)
+NewNameBox.BackgroundColor3 = BG_CARD
+NewNameBox.PlaceholderText = "Script Name..."
+NewNameBox.Text = ""
+NewNameBox.TextColor3 = TEXT_WHITE
+NewNameBox.Font = Enum.Font.Gotham
+NewNameBox.TextSize = 11
+NewNameBox.Parent = AddScriptFrame
+
+local NameCorner = Instance.new("UICorner")
+NameCorner.CornerRadius = UDim.new(0, 6)
+NameCorner.Parent = NewNameBox
+
+local NewCodeBox = Instance.new("TextBox")
+NewCodeBox.Size = UDim2.new(0.45, -4, 1, 0)
+NewCodeBox.Position = UDim2.new(0.35, 2, 0, 0)
+NewCodeBox.BackgroundColor3 = BG_CARD
+NewCodeBox.PlaceholderText = "Luau Code / URL..."
+NewCodeBox.Text = ""
+NewCodeBox.TextColor3 = TEXT_WHITE
+NewCodeBox.Font = Enum.Font.Gotham
+NewCodeBox.TextSize = 11
+NewCodeBox.Parent = AddScriptFrame
+
+local CodeCorner = Instance.new("UICorner")
+CodeCorner.CornerRadius = UDim.new(0, 6)
+CodeCorner.Parent = NewCodeBox
+
+local AddBtn = Instance.new("TextButton")
+AddBtn.Size = UDim2.new(0.2, 0, 1, 0)
+AddBtn.Position = UDim2.new(0.8, 2, 0, 0)
+AddBtn.BackgroundColor3 = ACCENT_CYAN
+AddBtn.Text = "+ ADD"
+AddBtn.TextColor3 = TEXT_WHITE
+AddBtn.Font = Enum.Font.GothamBold
+AddBtn.TextSize = 11
+AddBtn.Parent = AddScriptFrame
+
+local AddCorner = Instance.new("UICorner")
+AddCorner.CornerRadius = UDim.new(0, 6)
+AddCorner.Parent = AddBtn
+
+local ScriptScroll = Instance.new("ScrollingFrame")
+ScriptScroll.Size = UDim2.new(1, 0, 1, -44)
+ScriptScroll.Position = UDim2.new(0, 0, 0, 44)
+ScriptScroll.BackgroundTransparency = 1
+ScriptScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScriptScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ScriptScroll.ScrollBarThickness = 4
+ScriptScroll.Parent = HomePage
+
+local ScriptListLayout = Instance.new("UIListLayout")
+ScriptListLayout.Padding = UDim.new(0, 6)
+ScriptListLayout.Parent = ScriptScroll
+
+local function AddScriptItem(titleText, scriptCode)
+    if titleText == "" or scriptCode == "" then return end
+    
+    local Item = Instance.new("Frame")
+    Item.Size = UDim2.new(1, -10, 0, 38)
+    Item.BackgroundColor3 = BG_CARD
+    Item.Parent = ScriptScroll
+    
+    local ItemCorner = Instance.new("UICorner")
+    ItemCorner.CornerRadius = UDim.new(0, 6)
+    ItemCorner.Parent = Item
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(0.55, 0, 1, 0)
+    Title.Position = UDim2.new(0, 12, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = titleText
+    Title.TextColor3 = TEXT_WHITE
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 11
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Parent = Item
+    
+    local ExecScriptBtn = Instance.new("TextButton")
+    ExecScriptBtn.Size = UDim2.new(0, 65, 0, 24)
+    ExecScriptBtn.Position = UDim2.new(1, -72, 0.5, -12)
+    ExecScriptBtn.BackgroundColor3 = ACCENT_CYAN
+    ExecScriptBtn.Text = "EXECUTE"
+    ExecScriptBtn.TextColor3 = TEXT_WHITE
+    ExecScriptBtn.Font = Enum.Font.GothamBold
+    ExecScriptBtn.TextSize = 9
+    ExecScriptBtn.Parent = Item
+    
+    local ExecCorner = Instance.new("UICorner")
+    ExecCorner.CornerRadius = UDim.new(0, 4)
+    ExecCorner.Parent = ExecScriptBtn
+    
+    ExecScriptBtn.MouseButton1Click:Connect(function()
+        if loadstring then
+            local func
+            if scriptCode:sub(1, 4) == "http" then
+                func = loadstring(game:HttpGet(scriptCode))
+            else
+                func = loadstring(scriptCode)
+            end
+            if func then task.spawn(func) end
+        end
+    end)
+    
+    local DelBtn = Instance.new("TextButton")
+    DelBtn.Size = UDim2.new(0, 55, 0, 24)
+    DelBtn.Position = UDim2.new(1, -134, 0.5, -12)
+    DelBtn.BackgroundColor3 = BG_DARK
+    DelBtn.Text = "DELETE"
+    DelBtn.TextColor3 = TEXT_MUTED
+    DelBtn.Font = Enum.Font.GothamBold
+    DelBtn.TextSize = 9
+    DelBtn.Parent = Item
+    
+    local DelCorner = Instance.new("UICorner")
+    DelCorner.CornerRadius = UDim.new(0, 4)
+    DelCorner.Parent = DelBtn
+    
+    DelBtn.MouseButton1Click:Connect(function()
+        Item:Destroy()
+    end)
+end
+
+AddBtn.MouseButton1Click:Connect(function()
+    AddScriptItem(NewNameBox.Text, NewCodeBox.Text)
+    NewNameBox.Text = ""
+    NewCodeBox.Text = ""
+end)
+
+-- ============================================
+-- PAGE 3: CLOUD PAGE (SCRIPTBLOX INTEGRATION)
+-- ============================================
+local SearchFrame = Instance.new("Frame")
+SearchFrame.Size = UDim2.new(1, 0, 0, 36)
+SearchFrame.BackgroundTransparency = 1
+SearchFrame.Parent = CloudPage
+
+local SearchBox = Instance.new("TextBox")
+SearchBox.Size = UDim2.new(0.78, -4, 1, 0)
+SearchBox.BackgroundColor3 = BG_CARD
+SearchBox.PlaceholderText = "Search ScriptBlox (e.g., Blox Fruits, Brookhaven)..."
+SearchBox.Text = ""
+SearchBox.TextColor3 = TEXT_WHITE
+SearchBox.Font = Enum.Font.Gotham
+SearchBox.TextSize = 11
+SearchBox.Parent = SearchFrame
+
+local SearchBoxCorner = Instance.new("UICorner")
+SearchBoxCorner.CornerRadius = UDim.new(0, 6)
+SearchBoxCorner.Parent = SearchBox
+
+local SearchBtn = Instance.new("TextButton")
+SearchBtn.Size = UDim2.new(0.22, 0, 1, 0)
+SearchBtn.Position = UDim2.new(0.78, 4, 0, 0)
+SearchBtn.BackgroundColor3 = ACCENT_CYAN
+SearchBtn.Text = "SEARCH"
+SearchBtn.TextColor3 = TEXT_WHITE
+SearchBtn.Font = Enum.Font.GothamBold
+SearchBtn.TextSize = 11
+SearchBtn.Parent = SearchFrame
+
+local SearchBtnCorner = Instance.new("UICorner")
+SearchBtnCorner.CornerRadius = UDim.new(0, 6)
+SearchBtnCorner.Parent = SearchBtn
+
+local CloudScroll = Instance.new("ScrollingFrame")
+CloudScroll.Size = UDim2.new(1, 0, 1, -44)
+CloudScroll.Position = UDim2.new(0, 0, 0, 44)
+CloudScroll.BackgroundTransparency = 1
+CloudScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+CloudScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+CloudScroll.ScrollBarThickness = 4
+CloudScroll.Parent = CloudPage
+
+local CloudLayout = Instance.new("UIListLayout")
+CloudLayout.Padding = UDim.new(0, 6)
+CloudLayout.Parent = CloudScroll
+
+local function FetchScriptBlox(query)
+    for _, child in pairs(CloudScroll:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+
+    local searchQuery = (query and query ~= "") and query or "universal"
+    local rawUrl = "https://scriptblox.com/api/script/search?q=" .. searchQuery
+
+    task.spawn(function()
+        local success, result = pcall(function()
+            return game:HttpGet(rawUrl)
+        end)
+
+        if success and result then
+            local parseSuccess, parsedData = pcall(function()
+                return HttpService:JSONDecode(result)
+            end)
+
+            if parseSuccess and parsedData and parsedData.result and parsedData.result.scripts then
+                for _, scriptData in ipairs(parsedData.result.scripts) do
+                    local title = scriptData.title or "Untitled Script"
+                    local gameName = (scriptData.game and scriptData.game.name) or "Universal"
+                    local scriptCode = scriptData.script or ""
+
+                    local Card = Instance.new("Frame")
+                    Card.Size = UDim2.new(1, -10, 0, 48)
+                    Card.BackgroundColor3 = BG_CARD
+                    Card.Parent = CloudScroll
+
+                    local CardCorner = Instance.new("UICorner")
+                    CardCorner.CornerRadius = UDim.new(0, 6)
+                    CardCorner.Parent = Card
+
+                    local TitleLabel = Instance.new("TextLabel")
+                    TitleLabel.Size = UDim2.new(0.68, 0, 0, 20)
+                    TitleLabel.Position = UDim2.new(0, 10, 0, 4)
+                    TitleLabel.BackgroundTransparency = 1
+                    TitleLabel.Text = title
+                    TitleLabel.TextColor3 = TEXT_WHITE
+                    TitleLabel.Font = Enum.Font.GothamBold
+                    TitleLabel.TextSize = 11
+                    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    TitleLabel.TextTruncate = Enum.TextTruncate.AtEnd
+                    TitleLabel.Parent = Card
+
+                    local GameLabel = Instance.new("TextLabel")
+                    GameLabel.Size = UDim2.new(0.68, 0, 0, 18)
+                    GameLabel.Position = UDim2.new(0, 10, 0, 24)
+                    GameLabel.BackgroundTransparency = 1
+                    GameLabel.Text = "Game: " .. gameName
+                    GameLabel.TextColor3 = TEXT_MUTED
+                    GameLabel.Font = Enum.Font.Gotham
+                    GameLabel.TextSize = 9
+                    GameLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    GameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+                    GameLabel.Parent = Card
+
+                    local ExecBtn = Instance.new("TextButton")
+                    ExecBtn.Size = UDim2.new(0, 65, 0, 26)
+                    ExecBtn.Position = UDim2.new(1, -72, 0.5, -13)
+                    ExecBtn.BackgroundColor3 = ACCENT_CYAN
+                    ExecBtn.Text = "EXECUTE"
+                    ExecBtn.TextColor3 = TEXT_WHITE
+                    ExecBtn.Font = Enum.Font.GothamBold
+                    ExecBtn.TextSize = 9
+                    ExecBtn.Parent = Card
+
+                    local ExecCorner = Instance.new("UICorner")
+                    ExecCorner.CornerRadius = UDim.new(0, 4)
+                    ExecCorner.Parent = ExecBtn
+
+                    ExecBtn.MouseButton1Click:Connect(function()
+                        if loadstring and scriptCode ~= "" then
+                            local func = loadstring(scriptCode)
+                            if func then task.spawn(func) end
+                        end
+                    end)
+                end
+            end
+        end
+    end)
+end
+
+SearchBtn.MouseButton1Click:Connect(function()
+    FetchScriptBlox(SearchBox.Text)
+end)
+
+FetchScriptBlox("universal")
+
+-- ============================================
+-- PAGE 4: SETTINGS PAGE
+-- ============================================
+local SettingsScroll = Instance.new("ScrollingFrame")
+SettingsScroll.Size = UDim2.new(1, 0, 1, 0)
+SettingsScroll.BackgroundTransparency = 1
+SettingsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+SettingsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+SettingsScroll.ScrollBarThickness = 4
+SettingsScroll.Parent = SettingsPage
+
+local SettingsLayout = Instance.new("UIListLayout")
+SettingsLayout.Padding = UDim.new(0, 8)
+SettingsLayout.Parent = SettingsScroll
+
+local function CreateSettingToggle(titleText, descText, defaultState)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(1, -10, 0, 48)
+    Frame.BackgroundColor3 = BG_CARD
+    Frame.Parent = SettingsScroll
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 6)
+    Corner.Parent = Frame
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(0.7, 0, 0, 22)
+    Title.Position = UDim2.new(0, 12, 0, 4)
+    Title.BackgroundTransparency = 1
+    Title.Text = titleText
+    Title.TextColor3 = TEXT_WHITE
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 11
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Parent = Frame
+    
+    local Desc = Instance.new("TextLabel")
+    Desc.Size = UDim2.new(0.7, 0, 0, 18)
+    Desc.Position = UDim2.new(0, 12, 0, 24)
+    Desc.BackgroundTransparency = 1
+    Desc.Text = descText
+    Desc.TextColor3 = TEXT_MUTED
+    Desc.Font = Enum.Font.Gotham
+    Desc.TextSize = 9
+    Desc.TextXAlignment = Enum.TextXAlignment.Left
+    Desc.Parent = Frame
+    
+    local Switch = Instance.new("TextButton")
+    Switch.Size = UDim2.new(0, 50, 0, 24)
+    Switch.Position = UDim2.new(1, -60, 0.5, -12)
+    Switch.BackgroundColor3 = defaultState and ACCENT_CYAN or BG_DARK
+    Switch.Text = defaultState and "ON" or "OFF"
+    Switch.TextColor3 = TEXT_WHITE
+    Switch.Font = Enum.Font.GothamBold
+    Switch.TextSize = 10
+    Switch.Parent = Frame
+    
+    local SwitchCorner = Instance.new("UICorner")
+    SwitchCorner.CornerRadius = UDim.new(0, 12)
+    SwitchCorner.Parent = Switch
+    
+    local state = defaultState
+    Switch.MouseButton1Click:Connect(function()
+        state = not state
+        Switch.Text = state and "ON" or "OFF"
+        Switch.BackgroundColor3 = state and ACCENT_CYAN or BG_DARK
+    end)
+end
+
+CreateSettingToggle("Auto Execute", "Automatically run scripts placed in AutoExec", false)
+CreateSettingToggle("Unlock FPS", "Remove Roblox framerate limit (120+ FPS)", true)
+CreateSettingToggle("Anti-AFK", "Prevent disconnect after 20 minutes idle", true)
+CreateSettingToggle("Save Editor Tabs", "Remember active code tabs when closing UI", true)
+
+local CloseSettingBtn = Instance.new("TextButton")
+CloseSettingBtn.Size = UDim2.new(1, -10, 0, 36)
+CloseSettingBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
+CloseSettingBtn.Text = "CLOSE UI & SHOW ICON"
+CloseSettingBtn.TextColor3 = TEXT_WHITE
+CloseSettingBtn.Font = Enum.Font.GothamBold
+CloseSettingBtn.TextSize = 11
+CloseSettingBtn.Parent = SettingsScroll
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseSettingBtn
+
+CloseSettingBtn.MouseButton1Click:Connect(function()
+    CloseUI()
+end)
+
+-- ============================================
+-- PAGE 5: DUAL CONSOLE PAGE
+-- ============================================
+local ConsoleLayout = Instance.new("UIListLayout")
+ConsoleLayout.FillDirection = Enum.FillDirection.Horizontal
+ConsoleLayout.Padding = UDim.new(0, 10)
+ConsoleLayout.Parent = ConsolePage
+
+local function CreateConsoleBox(titleText)
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0.49, 0, 1, 0)
+    Frame.BackgroundColor3 = BG_CARD
+    Frame.Parent = ConsolePage
+    
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 8)
+    Corner.Parent = Frame
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -20, 0, 22)
+    Title.Position = UDim2.new(0, 10, 0, 6)
+    Title.BackgroundTransparency = 1
+    Title.Text = titleText
+    Title.TextColor3 = TEXT_WHITE
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 12
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Parent = Frame
+    
+    local Display = Instance.new("TextBox")
+    Display.Size = UDim2.new(1, -20, 1, -70)
+    Display.Position = UDim2.new(0, 10, 0, 30)
+    Display.BackgroundColor3 = BG_DARK
+    Display.Text = "> Console Initialized..."
+    Display.TextColor3 = TEXT_MUTED
+    Display.Font = Enum.Font.Code
+    Display.TextSize = 10
+    Display.TextXAlignment = Enum.TextXAlignment.Left
+    Display.TextYAlignment = Enum.TextYAlignment.Top
+    Display.ClearTextOnFocus = false
+    Display.MultiLine = true
+    Display.Parent = Frame
+    
+    local ClearCslBtn = Instance.new("TextButton")
+    ClearCslBtn.Size = UDim2.new(0, 70, 0, 24)
+    ClearCslBtn.Position = UDim2.new(0, 10, 1, -30)
+    ClearCslBtn.BackgroundColor3 = BG_DARK
+    ClearCslBtn.Text = "CLEAR"
+    ClearCslBtn.TextColor3 = TEXT_WHITE
+    ClearCslBtn.Font = Enum.Font.GothamBold
+    ClearCslBtn.TextSize = 9
+    ClearCslBtn.Parent = Frame
+    
+    local CslCorner = Instance.new("UICorner")
+    CslCorner.CornerRadius = UDim.new(0, 4)
+    CslCorner.Parent = ClearCslBtn
+    
+    ClearCslBtn.MouseButton1Click:Connect(function()
+        Display.Text = ""
+    end)
+end
+
+CreateConsoleBox("Roblox Console")
+CreateConsoleBox("Delta Console")
