@@ -6,6 +6,9 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+local StatsService = game:GetService("Stats")
+local LogService = game:GetService("LogService")
 
 -- ============================================
 -- 0. INTRO CREDIT GUI
@@ -68,7 +71,7 @@ local function CloseUI()
     ToggleBtn.Visible = true
 end
 
--- 1. FLOATING TOGGLE ICON (UPDATED BACKGROUND COLOR)
+-- 1. FLOATING TOGGLE ICON
 ToggleBtn = Instance.new("ImageButton")
 ToggleBtn.Name = "DeltaToggle"
 ToggleBtn.Size = UDim2.new(0, 46, 0, 46)
@@ -84,7 +87,7 @@ ToggleCorner.CornerRadius = UDim.new(1, 0)
 ToggleCorner.Parent = ToggleBtn
 
 local ToggleStroke = Instance.new("UIStroke")
-ToggleStroke.Color = ACCENT_CYAN
+ToggleStroke.Color = Color3.fromRGB(65, 169, 255)
 ToggleStroke.Thickness = 2
 ToggleStroke.Parent = ToggleBtn
 
@@ -317,12 +320,28 @@ local StatsLabel = Instance.new("TextLabel")
 StatsLabel.Size = UDim2.new(1, -16, 0, 26)
 StatsLabel.Position = UDim2.new(0, 10, 0, 46)
 StatsLabel.BackgroundTransparency = 1
-StatsLabel.Text = "60 FPS   45 MS Ping   " .. #Players:GetPlayers() .. " players"
+StatsLabel.Text = "Calculating network stats..."
 StatsLabel.TextColor3 = ACCENT_CYAN
 StatsLabel.Font = Enum.Font.GothamMedium
 StatsLabel.TextSize = 10
 StatsLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatsLabel.Parent = NetCard
+
+task.spawn(function()
+    while task.wait(1) do
+        if StatsLabel and StatsLabel.Parent then
+            local fps = math.floor(Workspace:GetRealPhysicsFPS())
+            local ping = 0
+            
+            pcall(function()
+                ping = math.floor(StatsService.Network.ServerStatsItem["Data Ping"]:GetValue())
+            end)
+            
+            local playerCount = #Players:GetPlayers()
+            StatsLabel.Text = string.format("%d FPS   %d MS Ping   %d players", fps, ping, playerCount)
+        end
+    end
+end)
 
 local FeatCard = Instance.new("Frame")
 FeatCard.Size = UDim2.new(1, 0, 0, 125)
@@ -675,7 +694,8 @@ local function FetchScriptBlox(query)
     end
 
     local searchQuery = (query and query ~= "") and query or "universal"
-    local rawUrl = "https://scriptblox.com/api/script/search?q=" .. searchQuery
+    local encodedQuery = HttpService:UrlEncode(searchQuery)
+    local rawUrl = "https://scriptblox.com/api/script/search?q=" .. encodedQuery
 
     task.spawn(function()
         local success, result = pcall(function()
@@ -857,7 +877,7 @@ ConsoleLayout.FillDirection = Enum.FillDirection.Horizontal
 ConsoleLayout.Padding = UDim.new(0, 10)
 ConsoleLayout.Parent = ConsolePage
 
-local function CreateConsoleBox(titleText)
+local function CreateConsoleBox(titleText, connectToRobloxLogs)
     local Frame = Instance.new("Frame")
     Frame.Size = UDim2.new(0.49, 0, 1, 0)
     Frame.BackgroundColor3 = BG_CARD
@@ -882,7 +902,7 @@ local function CreateConsoleBox(titleText)
     Display.Size = UDim2.new(1, -20, 1, -70)
     Display.Position = UDim2.new(0, 10, 0, 30)
     Display.BackgroundColor3 = BG_DARK
-    Display.Text = "> Console Initialized..."
+    Display.Text = "> Console Initialized...\n"
     Display.TextColor3 = TEXT_MUTED
     Display.Font = Enum.Font.Code
     Display.TextSize = 10
@@ -907,9 +927,23 @@ local function CreateConsoleBox(titleText)
     CslCorner.Parent = ClearCslBtn
     
     ClearCslBtn.MouseButton1Click:Connect(function()
-        Display.Text = ""
+        Display.Text = "> Console Cleared...\n"
     end)
+
+    if connectToRobloxLogs then
+        LogService.MessageOut:Connect(function(message, messageType)
+            if Display and Display.Parent then
+                local prefix = "[LOG] "
+                if messageType == Enum.MessageType.MessageWarning then
+                    prefix = "[WARN] "
+                elseif messageType == Enum.MessageType.MessageError then
+                    prefix = "[ERR] "
+                end
+                Display.Text = Display.Text .. prefix .. message .. "\n"
+            end
+        end)
+    end
 end
 
-CreateConsoleBox("Roblox Console")
-CreateConsoleBox("Delta Console")
+CreateConsoleBox("Roblox Console", true)
+CreateConsoleBox("Delta Console", false)
