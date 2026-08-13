@@ -1,0 +1,440 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local parentGui = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+
+local defaultDistance = 15
+local grabDistance = defaultDistance
+local minDistance = 2
+local maxDistance = 500   
+local throwPower = 200    
+local reachDistance = 500 
+
+local isHolding = false
+local isPushing = false
+local isPulling = false
+local isRotating = false
+local isDraggingRotate = false
+local isReclaiming = false
+local lastRotatePos = nil
+
+local targetPart = nil
+
+local lastOwnerCheck = 0
+local lastRaycastCheck = 0
+
+if parentGui:FindFirstChild("TelekinesisGUI") then
+    parentGui.TelekinesisGUI:Destroy()
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "TelekinesisGUI"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = parentGui
+
+local crosshair = Instance.new("Frame")
+crosshair.Name = "Crosshair"
+crosshair.Size = UDim2.new(0, 8, 0, 8)
+crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+crosshair.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+crosshair.BorderSizePixel = 0
+crosshair.Parent = screenGui
+
+local uiCornerCross = Instance.new("UICorner")
+uiCornerCross.CornerRadius = UDim.new(1, 0)
+uiCornerCross.Parent = crosshair
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 50, 0, 50)
+mainFrame.Position = UDim2.new(0.8, 0, 0.5, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+mainFrame.Parent = screenGui
+
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 10)
+frameCorner.Parent = mainFrame
+
+local dragHandle = Instance.new("TextLabel")
+dragHandle.Name = "DragHandle"
+dragHandle.Size = UDim2.new(1, 0, 0, 12)
+dragHandle.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+dragHandle.Text = ":::"
+dragHandle.TextColor3 = Color3.fromRGB(150, 150, 150)
+dragHandle.TextSize = 10
+dragHandle.Font = Enum.Font.SourceSansBold
+dragHandle.Parent = mainFrame
+
+local mainButton = Instance.new("TextButton")
+mainButton.Name = "MainButton"
+mainButton.Size = UDim2.new(1, -8, 1, -18)
+mainButton.Position = UDim2.new(0, 4, 0, 14)
+mainButton.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+mainButton.Text = "GRAB"
+mainButton.TextColor3 = Color3.fromRGB(0, 255, 170)
+mainButton.TextSize = 11
+mainButton.Font = Enum.Font.SourceSansBold
+mainButton.Parent = mainFrame
+
+local throwButton = Instance.new("TextButton")
+throwButton.Name = "ThrowButton"
+throwButton.Size = UDim2.new(0, 50, 0, 32)
+throwButton.Position = UDim2.new(0, 0, 0, -38)
+throwButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+throwButton.Text = "THROW"
+throwButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+throwButton.TextSize = 10
+throwButton.Font = Enum.Font.SourceSansBold
+throwButton.Visible = false
+throwButton.Parent = mainFrame
+
+local plusButton = Instance.new("TextButton")
+plusButton.Name = "PlusButton"
+plusButton.Size = UDim2.new(0, 32, 0, 32)
+plusButton.Position = UDim2.new(0, 56, 0, 9)
+plusButton.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+plusButton.Text = "+"
+plusButton.TextColor3 = Color3.fromRGB(0, 255, 170)
+plusButton.TextSize = 18
+plusButton.Font = Enum.Font.SourceSansBold
+plusButton.Visible = false
+plusButton.Parent = mainFrame
+
+local minusButton = Instance.new("TextButton")
+minusButton.Name = "MinusButton"
+minusButton.Size = UDim2.new(0, 32, 0, 32)
+minusButton.Position = UDim2.new(0, -38, 0, 9)
+minusButton.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+minusButton.Text = "-"
+minusButton.TextColor3 = Color3.fromRGB(255, 170, 0)
+minusButton.TextSize = 22
+minusButton.Font = Enum.Font.SourceSansBold
+minusButton.Visible = false
+minusButton.Parent = mainFrame
+
+local rotButton = Instance.new("TextButton")
+rotButton.Name = "RotButton"
+rotButton.Size = UDim2.new(0, 50, 0, 32)
+rotButton.Position = UDim2.new(0, 0, 0, 56)
+rotButton.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+rotButton.Text = "ROT: OFF"
+rotButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+rotButton.TextSize = 9
+rotButton.Font = Enum.Font.SourceSansBold
+rotButton.Visible = false
+rotButton.Parent = mainFrame
+
+local dragging, dragStart, startPos = false, nil, nil
+
+dragHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+local function getTargetAtCenter()
+    local viewportSize = Camera.ViewportSize
+    local centerRay = Camera:ViewportPointToRay(viewportSize.X / 2, viewportSize.Y / 2)
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    if LocalPlayer.Character then
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    end
+
+    local result = Workspace:Raycast(centerRay.Origin, centerRay.Direction * reachDistance, raycastParams)
+    
+    if result and result.Instance then
+        local hitPart = result.Instance
+        if hitPart.Anchored then return hitPart, "anchored" end
+        return hitPart, "unanchored"
+    end
+    return nil, "none"
+end
+
+local function checkNetworkOwnership(part)
+    if not part or not part:IsA("BasePart") or part.Anchored then return false end
+    
+    if typeof(isnetworkowner) == "function" then
+        return isnetworkowner(part)
+    end
+    
+    return part:ReceiveAge() > 0
+end
+
+local function possessesModelOwnership(part)
+    if not part then return false end
+    
+    local ancestor = part.Parent
+    local container = nil
+    
+    while ancestor and ancestor ~= Workspace do
+        if ancestor:IsA("Model") or ancestor:IsA("Folder") then
+            container = ancestor
+        end
+        ancestor = ancestor.Parent
+    end
+    
+    if not container then return false end
+    
+    for _, desc in ipairs(container:GetDescendants()) do
+        if desc:IsA("BasePart") and desc ~= part then
+            if checkNetworkOwnership(desc) then
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+local function reclaimOwnershipRoutine(part)
+    if isReclaiming or not part or not part:IsA("BasePart") then return end
+    isReclaiming = true
+    
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then 
+        isReclaiming = false
+        return 
+    end
+    local root = char.HumanoidRootPart
+
+    local savedRootCF = root.CFrame
+    local savedCamCF = Camera.CFrame
+
+    root.CFrame = part.CFrame
+    
+    if typeof(firetouchinterest) == "function" then
+        firetouchinterest(root, part, 0)
+        task.wait()
+        firetouchinterest(root, part, 1)
+    else
+        task.wait(0.04)
+    end
+
+    root.CFrame = savedRootCF
+    Camera.CFrame = savedCamCF
+
+    task.wait(0.08)
+    isReclaiming = false
+end
+
+local function setRotateState(enabled)
+    isRotating = enabled
+    if isRotating then
+        rotButton.Text = "ROT: ON"
+        rotButton.BackgroundColor3 = Color3.fromRGB(0, 255, 170)
+        rotButton.TextColor3 = Color3.fromRGB(15, 15, 25)
+        
+        Camera.CameraType = Enum.CameraType.Scriptable
+    else
+        rotButton.Text = "ROT: OFF"
+        rotButton.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+        rotButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+        isDraggingRotate = false
+        lastRotatePos = nil
+        
+        Camera.CameraType = Enum.CameraType.Custom
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if isHolding and isRotating and not gpe then
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDraggingRotate = true
+            lastRotatePos = input.Position
+        end
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input, gpe)
+    if isHolding and isRotating and isDraggingRotate and lastRotatePos then
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - lastRotatePos
+            lastRotatePos = input.Position
+            
+            if targetPart and targetPart:IsA("BasePart") then
+                local rotSpeed = 0.012
+                local pitch = CFrame.Angles(delta.Y * rotSpeed, 0, 0)
+                local yaw = CFrame.Angles(0, delta.X * rotSpeed, 0)
+                targetPart.CFrame = targetPart.CFrame * pitch * yaw
+            end
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDraggingRotate = false
+        lastRotatePos = nil
+    end
+end)
+
+plusButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isPushing = true end
+end)
+plusButton.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isPushing = false end
+end)
+
+minusButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isPulling = true end
+end)
+minusButton.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isPulling = false end
+end)
+
+local function startTelekinesis()
+    local target, status = getTargetAtCenter()
+    
+    if status == "unanchored" and target then
+        targetPart = target
+        isHolding = true
+        grabDistance = math.clamp((target.Position - Camera.CFrame.Position).Magnitude, minDistance, maxDistance)
+        
+        if not checkNetworkOwnership(targetPart) and not possessesModelOwnership(targetPart) then
+            reclaimOwnershipRoutine(targetPart)
+        end
+        
+        mainButton.Text = "DROP"
+        mainButton.TextColor3 = Color3.fromRGB(255, 170, 0)
+        throwButton.Visible = true
+        plusButton.Visible = true
+        minusButton.Visible = true
+        rotButton.Visible = true
+    end
+end
+
+local function stopTelekinesis()
+    if isHolding and targetPart then
+        if isRotating then
+            setRotateState(false)
+        end
+
+        Camera.CameraType = Enum.CameraType.Custom
+
+        if targetPart and targetPart:IsA("BasePart") then
+            targetPart.AssemblyLinearVelocity = Vector3.zero
+            targetPart.AssemblyAngularVelocity = Vector3.zero
+        end
+
+        isHolding = false
+        isPushing = false
+        isPulling = false
+        targetPart = nil
+        
+        mainButton.Text = "GRAB"
+        mainButton.TextColor3 = Color3.fromRGB(0, 255, 170)
+        throwButton.Visible = false
+        plusButton.Visible = false
+        minusButton.Visible = false
+        rotButton.Visible = false
+    end
+end
+
+local function throwObject()
+    if isHolding and targetPart then
+        local launchPart = targetPart
+        stopTelekinesis()
+        launchPart.AssemblyLinearVelocity = Camera.CFrame.LookVector * throwPower
+    end
+end
+
+mainButton.Activated:Connect(function()
+    if not isHolding then startTelekinesis() else stopTelekinesis() end
+end)
+
+throwButton.Activated:Connect(function()
+    if isHolding then throwObject() end
+end)
+
+rotButton.Activated:Connect(function()
+    if isHolding then setRotateState(not isRotating) end
+end)
+
+RunService.Heartbeat:Connect(function()
+    local now = os.clock()
+    
+    if isHolding and targetPart then
+        if not targetPart.Parent or (targetPart.Anchored and not isReclaiming) then
+            stopTelekinesis()
+            return
+        end
+
+        if (now - lastOwnerCheck) > 0.1 then
+            lastOwnerCheck = now
+            if not isReclaiming then
+                local hasDirectOwnership = checkNetworkOwnership(targetPart)
+                local hasModelOwnership = possessesModelOwnership(targetPart)
+                
+                if not hasDirectOwnership and not hasModelOwnership then
+                    task.spawn(function()
+                        reclaimOwnershipRoutine(targetPart)
+                    end)
+                end
+            end
+        end
+
+        local stepSpeed = math.max(1.8, grabDistance * 0.06)
+        if isPushing then
+            grabDistance = math.min(grabDistance + stepSpeed, maxDistance)
+        elseif isPulling then
+            grabDistance = math.max(grabDistance - stepSpeed, minDistance)
+        end
+        
+        if not isReclaiming then
+            local targetCFrame = Camera.CFrame * CFrame.new(0, 0, -grabDistance)
+            local delta = (targetCFrame.Position - targetPart.Position)
+            local calculatedVelocity = delta * 22
+            
+            if calculatedVelocity.Magnitude > 350 then
+                calculatedVelocity = calculatedVelocity.Unit * 350
+            end
+            
+            targetPart.AssemblyLinearVelocity = calculatedVelocity
+            
+            if not isRotating then
+                targetPart.AssemblyAngularVelocity = targetPart.AssemblyAngularVelocity * 0.85
+            end
+        end
+        
+        crosshair.BackgroundColor3 = Color3.fromRGB(0, 255, 170)
+    else
+        if (now - lastRaycastCheck) > 0.2 then
+            lastRaycastCheck = now
+            local _, status = getTargetAtCenter()
+            if status == "unanchored" then
+                crosshair.BackgroundColor3 = Color3.fromRGB(0, 255, 170)
+            elseif status == "anchored" then
+                crosshair.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+            else
+                crosshair.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+            end
+        end
+    end
+end)
