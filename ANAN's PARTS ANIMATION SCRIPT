@@ -1,0 +1,556 @@
+-- PART ORBIT (PURE CFRAME & REAL-TIME 3D REVOLUTION)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+if CoreGui:FindFirstChild("DeltaOrbitGui") then
+    CoreGui.DeltaOrbitGui:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "DeltaOrbitGui"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 220, 0, 295)
+MainFrame.Position = UDim2.new(0.5, -110, 0.35, -20)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+
+local FrameCorner = Instance.new("UICorner")
+FrameCorner.CornerRadius = UDim.new(0, 12)
+FrameCorner.Parent = MainFrame
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Name = "TitleLabel"
+TitleLabel.Size = UDim2.new(0, 110, 0, 25)
+TitleLabel.Position = UDim2.new(0, 10, 0, 5)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "Part Orbit 3D"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 14
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = MainFrame
+
+local TopToggle = Instance.new("TextButton")
+TopToggle.Name = "TopToggle"
+TopToggle.Size = UDim2.new(0, 55, 0, 22)
+TopToggle.Position = UDim2.new(1, -88, 0, 5)
+TopToggle.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+TopToggle.Text = "OFF"
+TopToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+TopToggle.TextSize = 11
+TopToggle.Font = Enum.Font.GothamBold
+TopToggle.Visible = false
+TopToggle.Parent = MainFrame
+
+local TopToggleCorner = Instance.new("UICorner")
+TopToggleCorner.CornerRadius = UDim.new(0, 6)
+TopToggleCorner.Parent = TopToggle
+
+local MinimizeButton = Instance.new("TextButton")
+MinimizeButton.Name = "MinimizeButton"
+MinimizeButton.Size = UDim2.new(0, 25, 0, 25)
+MinimizeButton.Position = UDim2.new(1, -30, 0, 3)
+MinimizeButton.BackgroundTransparency = 1
+MinimizeButton.Text = "-"
+MinimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinimizeButton.TextSize = 20
+MinimizeButton.Font = Enum.Font.GothamBold
+MinimizeButton.Parent = MainFrame
+
+local isMinimized = false
+MinimizeButton.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    if isMinimized then
+        MinimizeButton.Text = "+"
+        TopToggle.Visible = true
+        MainFrame:TweenSize(UDim2.new(0, 220, 0, 32), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true)
+    else
+        MinimizeButton.Text = "-"
+        TopToggle.Visible = false
+        MainFrame:TweenSize(UDim2.new(0, 220, 0, 295), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.2, true)
+    end
+end)
+
+local ShapeLabel = Instance.new("TextLabel")
+ShapeLabel.Name = "ShapeLabel"
+ShapeLabel.Size = UDim2.new(0, 180, 0, 16)
+ShapeLabel.Position = UDim2.new(0.5, -90, 0, 32)
+ShapeLabel.BackgroundTransparency = 1
+ShapeLabel.Text = "3D Orbit Shape:"
+ShapeLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+ShapeLabel.TextSize = 11
+ShapeLabel.Font = Enum.Font.Gotham
+ShapeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ShapeLabel.Parent = MainFrame
+
+local shapesList = {
+    "3D Sphere Shell", "3D Cube Box", "3D Cylinder Tube", 
+    "3D Diamond Octahedron", "3D Triangular Prism", "3D Hexagonal Prism", 
+    "3D Torus Donut", "3D Starburst", "3D Heart Surface", 
+    "3D Infinity Knot", "3D DNA Double Helix", "3D Pyramid", "3D Wave Grid"
+}
+local currentShapeIndex = 1
+
+local ShapeButton = Instance.new("TextButton")
+ShapeButton.Name = "ShapeButton"
+ShapeButton.Size = UDim2.new(0, 180, 0, 30)
+ShapeButton.Position = UDim2.new(0.5, -90, 0, 50)
+ShapeButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+ShapeButton.Text = "Shape: " .. shapesList[currentShapeIndex]
+ShapeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ShapeButton.TextSize = 11
+ShapeButton.Font = Enum.Font.GothamMedium
+ShapeButton.Parent = MainFrame
+
+local ShapeCorner = Instance.new("UICorner")
+ShapeCorner.CornerRadius = UDim.new(0, 8)
+ShapeCorner.Parent = ShapeButton
+
+ShapeButton.MouseButton1Click:Connect(function()
+    currentShapeIndex = (currentShapeIndex % #shapesList) + 1
+    ShapeButton.Text = "Shape: " .. shapesList[currentShapeIndex]
+end)
+
+local HeightLabel = Instance.new("TextLabel")
+HeightLabel.Name = "HeightLabel"
+HeightLabel.Size = UDim2.new(0, 180, 0, 16)
+HeightLabel.Position = UDim2.new(0.5, -90, 0, 85)
+HeightLabel.BackgroundTransparency = 1
+HeightLabel.Text = "Orbit Height:"
+HeightLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+HeightLabel.TextSize = 11
+HeightLabel.Font = Enum.Font.Gotham
+HeightLabel.TextXAlignment = Enum.TextXAlignment.Left
+HeightLabel.Parent = MainFrame
+
+local HeightBox = Instance.new("TextBox")
+HeightBox.Name = "HeightBox"
+HeightBox.Size = UDim2.new(0, 180, 0, 30)
+HeightBox.Position = UDim2.new(0.5, -90, 0, 103)
+HeightBox.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+HeightBox.Text = "0"
+HeightBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+HeightBox.TextSize = 13
+HeightBox.Font = Enum.Font.GothamMedium
+HeightBox.PlaceholderText = "Height (e.g. 0)..."
+HeightBox.Parent = MainFrame
+
+local HeightCorner = Instance.new("UICorner")
+HeightCorner.CornerRadius = UDim.new(0, 8)
+HeightCorner.Parent = HeightBox
+
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Name = "SpeedLabel"
+SpeedLabel.Size = UDim2.new(0, 180, 0, 16)
+SpeedLabel.Position = UDim2.new(0.5, -90, 0, 138)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "Orbit Speed:"
+SpeedLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+SpeedLabel.TextSize = 11
+SpeedLabel.Font = Enum.Font.Gotham
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = MainFrame
+
+local SpeedBox = Instance.new("TextBox")
+SpeedBox.Name = "SpeedBox"
+SpeedBox.Size = UDim2.new(0, 180, 0, 30)
+SpeedBox.Position = UDim2.new(0.5, -90, 0, 156)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+SpeedBox.Text = "2.5"
+SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedBox.TextSize = 13
+SpeedBox.Font = Enum.Font.GothamMedium
+SpeedBox.PlaceholderText = "Speed (e.g. 2.5)..."
+SpeedBox.Parent = MainFrame
+
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 8)
+SpeedCorner.Parent = SpeedBox
+
+local RadiusLabel = Instance.new("TextLabel")
+RadiusLabel.Name = "RadiusLabel"
+RadiusLabel.Size = UDim2.new(0, 180, 0, 16)
+RadiusLabel.Position = UDim2.new(0.5, -90, 0, 191)
+RadiusLabel.BackgroundTransparency = 1
+RadiusLabel.Text = "Orbit Radius (Max 50):"
+RadiusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+RadiusLabel.TextSize = 11
+RadiusLabel.Font = Enum.Font.Gotham
+RadiusLabel.TextXAlignment = Enum.TextXAlignment.Left
+RadiusLabel.Parent = MainFrame
+
+local RadiusBox = Instance.new("TextBox")
+RadiusBox.Name = "RadiusBox"
+RadiusBox.Size = UDim2.new(0, 180, 0, 30)
+RadiusBox.Position = UDim2.new(0.5, -90, 0, 209)
+RadiusBox.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+RadiusBox.Text = "12"
+RadiusBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+RadiusBox.TextSize = 13
+RadiusBox.Font = Enum.Font.GothamMedium
+RadiusBox.PlaceholderText = "Radius (1-50)..."
+RadiusBox.Parent = MainFrame
+
+local BoxCorner = Instance.new("UICorner")
+BoxCorner.CornerRadius = UDim.new(0, 8)
+BoxCorner.Parent = RadiusBox
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Size = UDim2.new(0, 180, 0, 35)
+ToggleButton.Position = UDim2.new(0.5, -90, 0, 249)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+ToggleButton.Text = "Orbit: Off"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.TextSize = 14
+ToggleButton.Font = Enum.Font.GothamMedium
+ToggleButton.Parent = MainFrame
+
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.Parent = ToggleButton
+
+local dragging, dragInput, dragStart, startPos
+
+local function updateInput(input)
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(
+        startPos.X.Scale, 
+        startPos.X.Offset + delta.X, 
+        startPos.Y.Scale, 
+        startPos.Y.Offset + delta.Y
+    )
+end
+
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateInput(input)
+    end
+end)
+
+local function isInsideHumanoidModel(part)
+    local current = part.Parent
+    while current and current ~= workspace do
+        if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then
+            return true
+        end
+        current = current.Parent
+    end
+    return false
+end
+
+local function isValidOrbitPart(part)
+    if not part:IsA("BasePart") or part.Name == "Terrain" then
+        return false
+    end
+
+    if part.Anchored then
+        return false
+    end
+    
+    if part.AssemblyRootPart and part.AssemblyRootPart.Anchored then
+        return false
+    end
+
+    if isInsideHumanoidModel(part) then
+        return false
+    end
+
+    return true
+end
+
+local isOrbiting = false
+local orbitConnection = nil
+local scanTask = nil
+
+local activeTargets = {}
+local validTargets = {}
+local nearbyLookup = {}
+
+local MAX_SCAN_DISTANCE = 80
+local overlapParams = OverlapParams.new()
+overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function startBackgroundScanner()
+    scanTask = task.spawn(function()
+        while isOrbiting do
+            local character = LocalPlayer.Character
+            local hrp = character and character:FindFirstChild("HumanoidRootPart")
+            
+            table.clear(nearbyLookup)
+            
+            if hrp then
+                if typeof(setsimulationradius) == "function" then
+                    pcall(setsimulationradius, 1000, 1000)
+                end
+
+                overlapParams.FilterDescendantsInstances = {character}
+                local partsNearby = workspace:GetPartBoundsInRadius(hrp.Position, MAX_SCAN_DISTANCE, overlapParams)
+                
+                for i = 1, #partsNearby do
+                    local part = partsNearby[i]
+                    if isValidOrbitPart(part) then
+                        nearbyLookup[part] = true
+                    end
+                end
+                
+                for i = #activeTargets, 1, -1 do
+                    local part = activeTargets[i]
+                    if not nearbyLookup[part] then
+                        table.remove(activeTargets, i)
+                    end
+                end
+                
+                for part in pairs(nearbyLookup) do
+                    if not table.find(activeTargets, part) then
+                        table.insert(activeTargets, part)
+                    end
+                end
+            else
+                table.clear(activeTargets)
+            end
+            
+            task.wait(0.3)
+        end
+    end)
+end
+
+local function getPolygonFactor(angle, sides)
+    local phi = (angle) % (2 * math.pi / sides)
+    return math.cos(math.pi / sides) / math.cos(phi - (math.pi / sides))
+end
+
+local function startOrbit()
+    startBackgroundScanner()
+    
+    -- Heartbeat updates pure CFrame positions on every single frame
+    orbitConnection = RunService.Heartbeat:Connect(function()
+        local character = LocalPlayer.Character
+        if not character then return end
+        
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        
+        table.clear(validTargets)
+        
+        for i = 1, #activeTargets do
+            local part = activeTargets[i]
+            if part and part.Parent and isValidOrbitPart(part) then
+                table.insert(validTargets, part)
+            end
+        end
+        
+        local count = #validTargets
+        if count == 0 then return end
+        
+        local rawHeight = tonumber(HeightBox.Text) or 0
+        local orbitHeight = math.clamp(rawHeight, -100, 100)
+
+        local rawRadius = tonumber(RadiusBox.Text) or 12
+        local orbitRadius = math.clamp(rawRadius, 1, 50)
+        
+        local rawSpeed = tonumber(SpeedBox.Text) or 2.5
+        local orbitSpeed = math.clamp(rawSpeed, 0, 50)
+        
+        local currentTime = os.clock()
+        local selectedShape = shapesList[currentShapeIndex]
+        local timeOffset = currentTime * orbitSpeed
+        
+        -- Master Y-axis revolution CFrame around player
+        local masterRotation = CFrame.Angles(0, timeOffset, 0)
+        
+        for i = 1, count do
+            local part = validTargets[i]
+            local ratio = (i - 1) / math.max(1, count)
+            local angle = (i / count) * math.pi * 2
+            
+            local localX, localY, localZ = 0, 0, 0
+            
+            if selectedShape == "3D Sphere Shell" then
+                local phi = math.acos(1 - (2 * (i - 0.5) / count))
+                local theta = math.pi * (1 + math.sqrt(5)) * i
+                localX = orbitRadius * math.sin(phi) * math.cos(theta)
+                localZ = orbitRadius * math.sin(phi) * math.sin(theta)
+                localY = orbitRadius * math.cos(phi)
+
+            elseif selectedShape == "3D Cube Box" then
+                local face = math.floor((i - 1) % 6)
+                local u = ((i - 1) * 1.61803398) % 1 - 0.5
+                local v = ((i - 1) * 2.71828182) % 1 - 0.5
+                local r = orbitRadius * 0.8
+                
+                if face == 0 then localX, localY, localZ = r, u * 2 * r, v * 2 * r
+                elseif face == 1 then localX, localY, localZ = -r, u * 2 * r, v * 2 * r
+                elseif face == 2 then localX, localY, localZ = u * 2 * r, r, v * 2 * r
+                elseif face == 3 then localX, localY, localZ = u * 2 * r, -r, v * 2 * r
+                elseif face == 4 then localX, localY, localZ = u * 2 * r, v * 2 * r, r
+                else localX, localY, localZ = u * 2 * r, v * 2 * r, -r end
+
+            elseif selectedShape == "3D Cylinder Tube" then
+                localX = math.cos(angle) * orbitRadius
+                localZ = math.sin(angle) * orbitRadius
+                localY = (ratio - 0.5) * (orbitRadius * 1.6)
+
+            elseif selectedShape == "3D Diamond Octahedron" then
+                local h = (ratio - 0.5) * 2 * orbitRadius
+                local currentR = orbitRadius * (1 - math.abs(ratio - 0.5) * 2)
+                localX = math.cos(angle) * currentR
+                localZ = math.sin(angle) * currentR
+                localY = h
+
+            elseif selectedShape == "3D Triangular Prism" then
+                local factor = getPolygonFactor(angle, 3)
+                localX = math.cos(angle) * orbitRadius * factor
+                localZ = math.sin(angle) * orbitRadius * factor
+                localY = (ratio - 0.5) * (orbitRadius * 1.5)
+
+            elseif selectedShape == "3D Hexagonal Prism" then
+                local factor = getPolygonFactor(angle, 6)
+                localX = math.cos(angle) * orbitRadius * factor
+                localZ = math.sin(angle) * orbitRadius * factor
+                localY = (ratio - 0.5) * (orbitRadius * 1.5)
+
+            elseif selectedShape == "3D Torus Donut" then
+                local u = angle
+                local v = ratio * math.pi * 2 * 3
+                local rTube = orbitRadius * 0.35
+                local localR = orbitRadius + rTube * math.cos(v)
+                localX = localR * math.cos(u)
+                localZ = localR * math.sin(u)
+                localY = rTube * math.sin(v)
+
+            elseif selectedShape == "3D Starburst" then
+                local phi = (ratio - 0.5) * math.pi
+                local starR = orbitRadius * (0.4 + 0.6 * math.abs(math.cos(4 * angle) * math.cos(4 * phi)))
+                localX = starR * math.cos(phi) * math.cos(angle)
+                localZ = starR * math.cos(phi) * math.sin(angle)
+                localY = starR * math.sin(phi)
+
+            elseif selectedShape == "3D Heart Surface" then
+                local u = ratio * math.pi
+                local v = angle * 2
+                local hx = 16 * (math.sin(u) ^ 3)
+                local hy = -(13 * math.cos(u) - 5 * math.cos(2*u) - 2 * math.cos(3*u) - math.cos(4*u))
+                localX = (hx / 16) * orbitRadius * math.cos(v)
+                localZ = (hx / 16) * orbitRadius * math.sin(v)
+                localY = (hy / 16) * orbitRadius
+
+            elseif selectedShape == "3D Infinity Knot" then
+                local t = angle
+                localX = orbitRadius * math.sin(t)
+                localZ = orbitRadius * math.sin(t) * math.cos(t)
+                localY = orbitRadius * math.cos(2 * t) * 0.5
+
+            elseif selectedShape == "3D DNA Double Helix" then
+                local strand = (i % 2 == 0) and 0 or math.pi
+                local t = angle * 2
+                localX = math.cos(t + strand) * orbitRadius
+                localZ = math.sin(t + strand) * orbitRadius
+                localY = (ratio - 0.5) * (orbitRadius * 2)
+
+            elseif selectedShape == "3D Pyramid" then
+                local hProg = ratio
+                local currentR = orbitRadius * (1 - hProg)
+                local factor = getPolygonFactor(angle, 4)
+                localX = math.cos(angle) * currentR * factor
+                localZ = math.sin(angle) * currentR * factor
+                localY = (hProg - 0.5) * (orbitRadius * 1.5)
+
+            elseif selectedShape == "3D Wave Grid" then
+                local gridDim = math.ceil(math.sqrt(count))
+                local row = math.floor((i - 1) / gridDim)
+                local col = (i - 1) % gridDim
+                local u = (col / math.max(1, gridDim - 1) - 0.5) * orbitRadius * 2
+                local v = (row / math.max(1, gridDim - 1) - 0.5) * orbitRadius * 2
+                local dist = math.sqrt(u*u + v*v)
+                localX = u
+                localZ = v
+                localY = math.sin(dist - timeOffset) * (orbitRadius * 0.3)
+            end
+            
+            -- Combine 3D local coordinate with Master Y-Rotation around Player
+            local baseOffset = Vector3.new(localX, localY, localZ)
+            local rotatedOffset = masterRotation:VectorToWorldSpace(baseOffset)
+            local targetPosition = hrp.Position + Vector3.new(0, orbitHeight, 0) + rotatedOffset
+            
+            -- Individual tumbling angle for each part
+            local partTumble = CFrame.Angles(currentTime * 2 + i, currentTime * 1.5 + i, currentTime)
+            
+            -- Direct Pure CFrame application
+            part.CFrame = CFrame.new(targetPosition) * partTumble
+        end
+    end)
+end
+
+local function stopOrbit()
+    if orbitConnection then
+        orbitConnection:Disconnect()
+        orbitConnection = nil
+    end
+    if scanTask then
+        task.cancel(scanTask)
+        scanTask = nil
+    end
+    table.clear(activeTargets)
+    table.clear(validTargets)
+    table.clear(nearbyLookup)
+end
+
+local function updateToggleUI()
+    if isOrbiting then
+        ToggleButton.Text = "Orbit: On"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 90)
+        TopToggle.Text = "ON"
+        TopToggle.BackgroundColor3 = Color3.fromRGB(50, 200, 90)
+    else
+        ToggleButton.Text = "Orbit: Off"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        TopToggle.Text = "OFF"
+        TopToggle.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    end
+end
+
+local function handleToggleClick()
+    isOrbiting = not isOrbiting
+    updateToggleUI()
+    if isOrbiting then
+        startOrbit()
+    else
+        stopOrbit()
+    end
+end
+
+ToggleButton.MouseButton1Click:Connect(handleToggleClick)
+TopToggle.MouseButton1Click:Connect(handleToggleClick)
