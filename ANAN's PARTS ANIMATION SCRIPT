@@ -1,4 +1,4 @@
--- PART ORBIT (PURE CFRAME & REAL-TIME 3D REVOLUTION)
+-- PART ORBIT (LAG FREE)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -35,7 +35,7 @@ TitleLabel.Name = "TitleLabel"
 TitleLabel.Size = UDim2.new(0, 110, 0, 25)
 TitleLabel.Position = UDim2.new(0, 10, 0, 5)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "Part Orbit 3D"
+TitleLabel.Text = "Part Orbit"
 TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 TitleLabel.TextSize = 14
 TitleLabel.Font = Enum.Font.GothamBold
@@ -88,40 +88,27 @@ ShapeLabel.Name = "ShapeLabel"
 ShapeLabel.Size = UDim2.new(0, 180, 0, 16)
 ShapeLabel.Position = UDim2.new(0.5, -90, 0, 32)
 ShapeLabel.BackgroundTransparency = 1
-ShapeLabel.Text = "3D Orbit Shape:"
+ShapeLabel.Text = "Orbit Shape:"
 ShapeLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 ShapeLabel.TextSize = 11
 ShapeLabel.Font = Enum.Font.Gotham
 ShapeLabel.TextXAlignment = Enum.TextXAlignment.Left
 ShapeLabel.Parent = MainFrame
 
-local shapesList = {
-    "3D Sphere Shell", "3D Cube Box", "3D Cylinder Tube", 
-    "3D Diamond Octahedron", "3D Triangular Prism", "3D Hexagonal Prism", 
-    "3D Torus Donut", "3D Starburst", "3D Heart Surface", 
-    "3D Infinity Knot", "3D DNA Double Helix", "3D Pyramid", "3D Wave Grid"
-}
-local currentShapeIndex = 1
-
 local ShapeButton = Instance.new("TextButton")
 ShapeButton.Name = "ShapeButton"
 ShapeButton.Size = UDim2.new(0, 180, 0, 30)
 ShapeButton.Position = UDim2.new(0.5, -90, 0, 50)
 ShapeButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-ShapeButton.Text = "Shape: " .. shapesList[currentShapeIndex]
+ShapeButton.Text = "Shape: Circle"
 ShapeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ShapeButton.TextSize = 11
+ShapeButton.TextSize = 13
 ShapeButton.Font = Enum.Font.GothamMedium
 ShapeButton.Parent = MainFrame
 
 local ShapeCorner = Instance.new("UICorner")
 ShapeCorner.CornerRadius = UDim.new(0, 8)
 ShapeCorner.Parent = ShapeButton
-
-ShapeButton.MouseButton1Click:Connect(function()
-    currentShapeIndex = (currentShapeIndex % #shapesList) + 1
-    ShapeButton.Text = "Shape: " .. shapesList[currentShapeIndex]
-end)
 
 local HeightLabel = Instance.new("TextLabel")
 HeightLabel.Name = "HeightLabel"
@@ -168,11 +155,11 @@ SpeedBox.Name = "SpeedBox"
 SpeedBox.Size = UDim2.new(0, 180, 0, 30)
 SpeedBox.Position = UDim2.new(0.5, -90, 0, 156)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-SpeedBox.Text = "2.5"
+SpeedBox.Text = "3.5"
 SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 SpeedBox.TextSize = 13
 SpeedBox.Font = Enum.Font.GothamMedium
-SpeedBox.PlaceholderText = "Speed (e.g. 2.5)..."
+SpeedBox.PlaceholderText = "Speed (e.g. 3.5)..."
 SpeedBox.Parent = MainFrame
 
 local SpeedCorner = Instance.new("UICorner")
@@ -222,6 +209,18 @@ local ButtonCorner = Instance.new("UICorner")
 ButtonCorner.CornerRadius = UDim.new(0, 8)
 ButtonCorner.Parent = ToggleButton
 
+local shapesList = {
+    "Circle", "Square", "Triangle", "Pentagon", "Hexagon", 
+    "Star", "Heart", "Infinity", 
+    "3D Helix", "3D DNA Helix", "3D Sphere", "3D Torus", "3D Pyramid", "3D Wave"
+}
+local currentShapeIndex = 1
+
+ShapeButton.MouseButton1Click:Connect(function()
+    currentShapeIndex = (currentShapeIndex % #shapesList) + 1
+    ShapeButton.Text = "Shape: " .. shapesList[currentShapeIndex]
+end)
+
 local dragging, dragInput, dragStart, startPos
 
 local function updateInput(input)
@@ -268,7 +267,25 @@ local function isInsideHumanoidModel(part)
         end
         current = current.Parent
     end
+    
+    local success, connectedParts = pcall(function() return part:GetConnectedParts() end)
+    if success and connectedParts then
+        for i = 1, #connectedParts do
+            local parentModel = connectedParts[i]:FindFirstAncestorWhichIsA("Model")
+            if parentModel and parentModel:FindFirstChildOfClass("Humanoid") then
+                return true
+            end
+        end
+    end
+    
     return false
+end
+
+local function hasNetworkOwnership(part)
+    if typeof(isnetworkowner) == "function" then
+        return isnetworkowner(part)
+    end
+    return true
 end
 
 local function isValidOrbitPart(part)
@@ -288,6 +305,10 @@ local function isValidOrbitPart(part)
         return false
     end
 
+    if not hasNetworkOwnership(part) then
+        return false
+    end
+
     return true
 end
 
@@ -299,7 +320,7 @@ local activeTargets = {}
 local validTargets = {}
 local nearbyLookup = {}
 
-local MAX_SCAN_DISTANCE = 80
+local MAX_SCAN_DISTANCE = 50
 local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -312,10 +333,6 @@ local function startBackgroundScanner()
             table.clear(nearbyLookup)
             
             if hrp then
-                if typeof(setsimulationradius) == "function" then
-                    pcall(setsimulationradius, 1000, 1000)
-                end
-
                 overlapParams.FilterDescendantsInstances = {character}
                 local partsNearby = workspace:GetPartBoundsInRadius(hrp.Position, MAX_SCAN_DISTANCE, overlapParams)
                 
@@ -342,7 +359,7 @@ local function startBackgroundScanner()
                 table.clear(activeTargets)
             end
             
-            task.wait(0.3)
+            task.wait(0.5)
         end
     end)
 end
@@ -355,7 +372,6 @@ end
 local function startOrbit()
     startBackgroundScanner()
     
-    -- Heartbeat updates pure CFrame positions on every single frame
     orbitConnection = RunService.Heartbeat:Connect(function()
         local character = LocalPlayer.Character
         if not character then return end
@@ -381,135 +397,109 @@ local function startOrbit()
         local rawRadius = tonumber(RadiusBox.Text) or 12
         local orbitRadius = math.clamp(rawRadius, 1, 50)
         
-        local rawSpeed = tonumber(SpeedBox.Text) or 2.5
+        local rawSpeed = tonumber(SpeedBox.Text) or 3.5
         local orbitSpeed = math.clamp(rawSpeed, 0, 50)
         
-        local currentTime = os.clock()
+        local currentTime = tick()
+        local angleStep = (math.pi * 2) / count
         local selectedShape = shapesList[currentShapeIndex]
-        local timeOffset = currentTime * orbitSpeed
-        
-        -- Master Y-axis revolution CFrame around player
-        local masterRotation = CFrame.Angles(0, timeOffset, 0)
         
         for i = 1, count do
             local part = validTargets[i]
-            local ratio = (i - 1) / math.max(1, count)
-            local angle = (i / count) * math.pi * 2
+            local angle = (currentTime * orbitSpeed) + (i * angleStep)
             
-            local localX, localY, localZ = 0, 0, 0
+            local offsetX = 0
+            local offsetY = orbitHeight
+            local offsetZ = 0
             
-            if selectedShape == "3D Sphere Shell" then
-                local phi = math.acos(1 - (2 * (i - 0.5) / count))
-                local theta = math.pi * (1 + math.sqrt(5)) * i
-                localX = orbitRadius * math.sin(phi) * math.cos(theta)
-                localZ = orbitRadius * math.sin(phi) * math.sin(theta)
-                localY = orbitRadius * math.cos(phi)
-
-            elseif selectedShape == "3D Cube Box" then
-                local face = math.floor((i - 1) % 6)
-                local u = ((i - 1) * 1.61803398) % 1 - 0.5
-                local v = ((i - 1) * 2.71828182) % 1 - 0.5
-                local r = orbitRadius * 0.8
+            if selectedShape == "Circle" then
+                offsetX = math.cos(angle) * orbitRadius
+                offsetZ = math.sin(angle) * orbitRadius
                 
-                if face == 0 then localX, localY, localZ = r, u * 2 * r, v * 2 * r
-                elseif face == 1 then localX, localY, localZ = -r, u * 2 * r, v * 2 * r
-                elseif face == 2 then localX, localY, localZ = u * 2 * r, r, v * 2 * r
-                elseif face == 3 then localX, localY, localZ = u * 2 * r, -r, v * 2 * r
-                elseif face == 4 then localX, localY, localZ = u * 2 * r, v * 2 * r, r
-                else localX, localY, localZ = u * 2 * r, v * 2 * r, -r end
+            elseif selectedShape == "Square" then
+                local factor = getPolygonFactor(angle, 4)
+                offsetX = math.cos(angle) * orbitRadius * factor
+                offsetZ = math.sin(angle) * orbitRadius * factor
 
-            elseif selectedShape == "3D Cylinder Tube" then
-                localX = math.cos(angle) * orbitRadius
-                localZ = math.sin(angle) * orbitRadius
-                localY = (ratio - 0.5) * (orbitRadius * 1.6)
-
-            elseif selectedShape == "3D Diamond Octahedron" then
-                local h = (ratio - 0.5) * 2 * orbitRadius
-                local currentR = orbitRadius * (1 - math.abs(ratio - 0.5) * 2)
-                localX = math.cos(angle) * currentR
-                localZ = math.sin(angle) * currentR
-                localY = h
-
-            elseif selectedShape == "3D Triangular Prism" then
+            elseif selectedShape == "Triangle" then
                 local factor = getPolygonFactor(angle, 3)
-                localX = math.cos(angle) * orbitRadius * factor
-                localZ = math.sin(angle) * orbitRadius * factor
-                localY = (ratio - 0.5) * (orbitRadius * 1.5)
+                offsetX = math.cos(angle) * orbitRadius * factor
+                offsetZ = math.sin(angle) * orbitRadius * factor
 
-            elseif selectedShape == "3D Hexagonal Prism" then
+            elseif selectedShape == "Pentagon" then
+                local factor = getPolygonFactor(angle, 5)
+                offsetX = math.cos(angle) * orbitRadius * factor
+                offsetZ = math.sin(angle) * orbitRadius * factor
+
+            elseif selectedShape == "Hexagon" then
                 local factor = getPolygonFactor(angle, 6)
-                localX = math.cos(angle) * orbitRadius * factor
-                localZ = math.sin(angle) * orbitRadius * factor
-                localY = (ratio - 0.5) * (orbitRadius * 1.5)
+                offsetX = math.cos(angle) * orbitRadius * factor
+                offsetZ = math.sin(angle) * orbitRadius * factor
+                
+            elseif selectedShape == "Star" then
+                local starFactor = 0.6 + 0.4 * math.cos(angle * 5)
+                offsetX = math.cos(angle) * orbitRadius * starFactor
+                offsetZ = math.sin(angle) * orbitRadius * starFactor
 
-            elseif selectedShape == "3D Torus Donut" then
-                local u = angle
-                local v = ratio * math.pi * 2 * 3
-                local rTube = orbitRadius * 0.35
-                local localR = orbitRadius + rTube * math.cos(v)
-                localX = localR * math.cos(u)
-                localZ = localR * math.sin(u)
-                localY = rTube * math.sin(v)
-
-            elseif selectedShape == "3D Starburst" then
-                local phi = (ratio - 0.5) * math.pi
-                local starR = orbitRadius * (0.4 + 0.6 * math.abs(math.cos(4 * angle) * math.cos(4 * phi)))
-                localX = starR * math.cos(phi) * math.cos(angle)
-                localZ = starR * math.cos(phi) * math.sin(angle)
-                localY = starR * math.sin(phi)
-
-            elseif selectedShape == "3D Heart Surface" then
-                local u = ratio * math.pi
-                local v = angle * 2
-                local hx = 16 * (math.sin(u) ^ 3)
-                local hy = -(13 * math.cos(u) - 5 * math.cos(2*u) - 2 * math.cos(3*u) - math.cos(4*u))
-                localX = (hx / 16) * orbitRadius * math.cos(v)
-                localZ = (hx / 16) * orbitRadius * math.sin(v)
-                localY = (hy / 16) * orbitRadius
-
-            elseif selectedShape == "3D Infinity Knot" then
+            elseif selectedShape == "Heart" then
                 local t = angle
-                localX = orbitRadius * math.sin(t)
-                localZ = orbitRadius * math.sin(t) * math.cos(t)
-                localY = orbitRadius * math.cos(2 * t) * 0.5
+                local x = 16 * (math.sin(t) ^ 3)
+                local z = -(13 * math.cos(t) - 5 * math.cos(2*t) - 2 * math.cos(3*t) - math.cos(4*t))
+                offsetX = (x / 16) * orbitRadius
+                offsetZ = (z / 16) * orbitRadius
 
-            elseif selectedShape == "3D DNA Double Helix" then
+            elseif selectedShape == "Infinity" then
+                local denom = 1 + (math.sin(angle) ^ 2)
+                offsetX = (orbitRadius * 1.3 * math.cos(angle)) / denom
+                offsetZ = (orbitRadius * 1.3 * math.sin(angle) * math.cos(angle)) / denom
+                
+            elseif selectedShape == "3D Helix" then
+                offsetX = math.cos(angle) * orbitRadius
+                offsetZ = math.sin(angle) * orbitRadius
+                local verticalSpread = count > 1 and ((i / count) - 0.5) * (orbitRadius * 1.5) or 0
+                offsetY = orbitHeight + verticalSpread
+
+            elseif selectedShape == "3D DNA Helix" then
                 local strand = (i % 2 == 0) and 0 or math.pi
-                local t = angle * 2
-                localX = math.cos(t + strand) * orbitRadius
-                localZ = math.sin(t + strand) * orbitRadius
-                localY = (ratio - 0.5) * (orbitRadius * 2)
+                offsetX = math.cos(angle + strand) * orbitRadius
+                offsetZ = math.sin(angle + strand) * orbitRadius
+                local progress = (i / count) - 0.5
+                offsetY = orbitHeight + progress * (orbitRadius * 1.8)
+                
+            elseif selectedShape == "3D Sphere" then
+                local phi = math.acos(1 - (2 * (i - 0.5) / count))
+                local theta = (math.pi * (1 + math.sqrt(5)) * i) + (currentTime * orbitSpeed)
+                offsetX = orbitRadius * math.sin(phi) * math.cos(theta)
+                offsetZ = orbitRadius * math.sin(phi) * math.sin(theta)
+                offsetY = orbitHeight + (orbitRadius * math.cos(phi))
+
+            elseif selectedShape == "3D Torus" then
+                local u = angle
+                local v = (i / count) * math.pi * 2 + (currentTime * orbitSpeed)
+                local r = orbitRadius * 0.4
+                offsetX = (orbitRadius + r * math.cos(v)) * math.cos(u)
+                offsetZ = (orbitRadius + r * math.cos(v)) * math.sin(u)
+                offsetY = orbitHeight + r * math.sin(v)
 
             elseif selectedShape == "3D Pyramid" then
-                local hProg = ratio
-                local currentR = orbitRadius * (1 - hProg)
+                local heightProgress = (i / count)
+                local currentR = orbitRadius * (1 - heightProgress)
                 local factor = getPolygonFactor(angle, 4)
-                localX = math.cos(angle) * currentR * factor
-                localZ = math.sin(angle) * currentR * factor
-                localY = (hProg - 0.5) * (orbitRadius * 1.5)
-
-            elseif selectedShape == "3D Wave Grid" then
-                local gridDim = math.ceil(math.sqrt(count))
-                local row = math.floor((i - 1) / gridDim)
-                local col = (i - 1) % gridDim
-                local u = (col / math.max(1, gridDim - 1) - 0.5) * orbitRadius * 2
-                local v = (row / math.max(1, gridDim - 1) - 0.5) * orbitRadius * 2
-                local dist = math.sqrt(u*u + v*v)
-                localX = u
-                localZ = v
-                localY = math.sin(dist - timeOffset) * (orbitRadius * 0.3)
+                offsetX = math.cos(angle) * currentR * factor
+                offsetZ = math.sin(angle) * currentR * factor
+                offsetY = orbitHeight + (heightProgress - 0.5) * (orbitRadius * 1.5)
+                
+            elseif selectedShape == "3D Wave" then
+                offsetX = math.cos(angle) * orbitRadius
+                offsetZ = math.sin(angle) * orbitRadius
+                offsetY = orbitHeight + math.sin(angle * 4 + currentTime * 2) * (orbitRadius * 0.4)
             end
             
-            -- Combine 3D local coordinate with Master Y-Rotation around Player
-            local baseOffset = Vector3.new(localX, localY, localZ)
-            local rotatedOffset = masterRotation:VectorToWorldSpace(baseOffset)
-            local targetPosition = hrp.Position + Vector3.new(0, orbitHeight, 0) + rotatedOffset
+            local targetPos = hrp.Position + Vector3.new(offsetX, offsetY, offsetZ)
             
-            -- Individual tumbling angle for each part
-            local partTumble = CFrame.Angles(currentTime * 2 + i, currentTime * 1.5 + i, currentTime)
-            
-            -- Direct Pure CFrame application
-            part.CFrame = CFrame.new(targetPosition) * partTumble
+            part.CFrame = CFrame.new(targetPos, hrp.Position)
+            part.AssemblyLinearVelocity = Vector3.zero
+            part.AssemblyAngularVelocity = Vector3.zero
         end
     end)
 end
