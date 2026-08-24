@@ -1,4 +1,4 @@
--- PART ORBIT (LAG FREE)
+-- PART ORBIT (MAX RADIUS: 150 | PICKUP DISTANCE: RADIUS + 20 STUDS)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -95,12 +95,19 @@ ShapeLabel.Font = Enum.Font.Gotham
 ShapeLabel.TextXAlignment = Enum.TextXAlignment.Left
 ShapeLabel.Parent = MainFrame
 
+local shapesList = {
+    "Circle", "Square", "Triangle", "Pentagon", "Hexagon", 
+    "Star", "Heart", "Infinity", 
+    "3D Helix", "3D DNA Helix", "3D Sphere", "3D Torus", "3D Pyramid", "3D Wave"
+}
+local currentShapeIndex = 1
+
 local ShapeButton = Instance.new("TextButton")
 ShapeButton.Name = "ShapeButton"
 ShapeButton.Size = UDim2.new(0, 180, 0, 30)
 ShapeButton.Position = UDim2.new(0.5, -90, 0, 50)
 ShapeButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-ShapeButton.Text = "Shape: Circle"
+ShapeButton.Text = "Shape: " .. shapesList[currentShapeIndex]
 ShapeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ShapeButton.TextSize = 13
 ShapeButton.Font = Enum.Font.GothamMedium
@@ -109,6 +116,11 @@ ShapeButton.Parent = MainFrame
 local ShapeCorner = Instance.new("UICorner")
 ShapeCorner.CornerRadius = UDim.new(0, 8)
 ShapeCorner.Parent = ShapeButton
+
+ShapeButton.MouseButton1Click:Connect(function()
+    currentShapeIndex = (currentShapeIndex % #shapesList) + 1
+    ShapeButton.Text = "Shape: " .. shapesList[currentShapeIndex]
+end)
 
 local HeightLabel = Instance.new("TextLabel")
 HeightLabel.Name = "HeightLabel"
@@ -171,7 +183,7 @@ RadiusLabel.Name = "RadiusLabel"
 RadiusLabel.Size = UDim2.new(0, 180, 0, 16)
 RadiusLabel.Position = UDim2.new(0.5, -90, 0, 191)
 RadiusLabel.BackgroundTransparency = 1
-RadiusLabel.Text = "Orbit Radius (Max 50):"
+RadiusLabel.Text = "Orbit Radius (Max 150):"
 RadiusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 RadiusLabel.TextSize = 11
 RadiusLabel.Font = Enum.Font.Gotham
@@ -183,11 +195,11 @@ RadiusBox.Name = "RadiusBox"
 RadiusBox.Size = UDim2.new(0, 180, 0, 30)
 RadiusBox.Position = UDim2.new(0.5, -90, 0, 209)
 RadiusBox.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
-RadiusBox.Text = "12"
+RadiusBox.Text = "150"
 RadiusBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 RadiusBox.TextSize = 13
 RadiusBox.Font = Enum.Font.GothamMedium
-RadiusBox.PlaceholderText = "Radius (1-50)..."
+RadiusBox.PlaceholderText = "Radius (1-150)..."
 RadiusBox.Parent = MainFrame
 
 local BoxCorner = Instance.new("UICorner")
@@ -208,18 +220,6 @@ ToggleButton.Parent = MainFrame
 local ButtonCorner = Instance.new("UICorner")
 ButtonCorner.CornerRadius = UDim.new(0, 8)
 ButtonCorner.Parent = ToggleButton
-
-local shapesList = {
-    "Circle", "Square", "Triangle", "Pentagon", "Hexagon", 
-    "Star", "Heart", "Infinity", 
-    "3D Helix", "3D DNA Helix", "3D Sphere", "3D Torus", "3D Pyramid", "3D Wave"
-}
-local currentShapeIndex = 1
-
-ShapeButton.MouseButton1Click:Connect(function()
-    currentShapeIndex = (currentShapeIndex % #shapesList) + 1
-    ShapeButton.Text = "Shape: " .. shapesList[currentShapeIndex]
-end)
 
 local dragging, dragInput, dragStart, startPos
 
@@ -267,25 +267,7 @@ local function isInsideHumanoidModel(part)
         end
         current = current.Parent
     end
-    
-    local success, connectedParts = pcall(function() return part:GetConnectedParts() end)
-    if success and connectedParts then
-        for i = 1, #connectedParts do
-            local parentModel = connectedParts[i]:FindFirstAncestorWhichIsA("Model")
-            if parentModel and parentModel:FindFirstChildOfClass("Humanoid") then
-                return true
-            end
-        end
-    end
-    
     return false
-end
-
-local function hasNetworkOwnership(part)
-    if typeof(isnetworkowner) == "function" then
-        return isnetworkowner(part)
-    end
-    return true
 end
 
 local function isValidOrbitPart(part)
@@ -305,11 +287,18 @@ local function isValidOrbitPart(part)
         return false
     end
 
-    if not hasNetworkOwnership(part) then
-        return false
-    end
-
     return true
+end
+
+-- Force client simulation radius expansion
+local function boostSimulationRadius()
+    pcall(function()
+        if sethiddenproperty then
+            sethiddenproperty(LocalPlayer, "SimulationRadius", 1000)
+            sethiddenproperty(LocalPlayer, "MaxSimulationRadius", 1000)
+        end
+        LocalPlayer.MaximumSimulationRadius = 1000
+    end)
 end
 
 local isOrbiting = false
@@ -319,22 +308,29 @@ local scanTask = nil
 local activeTargets = {}
 local validTargets = {}
 local nearbyLookup = {}
+local originalCanCollide = {}
 
-local MAX_SCAN_DISTANCE = 50
 local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function startBackgroundScanner()
     scanTask = task.spawn(function()
         while isOrbiting do
+            boostSimulationRadius()
+            
             local character = LocalPlayer.Character
             local hrp = character and character:FindFirstChild("HumanoidRootPart")
             
             table.clear(nearbyLookup)
             
             if hrp then
+                -- Clamped to 150 max radius, pickup distance is radius + 20 studs
+                local rawRadius = tonumber(RadiusBox.Text) or 150
+                local currentRadius = math.clamp(rawRadius, 1, 150)
+                local pickupDistance = currentRadius + 20
+                
                 overlapParams.FilterDescendantsInstances = {character}
-                local partsNearby = workspace:GetPartBoundsInRadius(hrp.Position, MAX_SCAN_DISTANCE, overlapParams)
+                local partsNearby = workspace:GetPartBoundsInRadius(hrp.Position, pickupDistance, overlapParams)
                 
                 for i = 1, #partsNearby do
                     local part = partsNearby[i]
@@ -346,6 +342,14 @@ local function startBackgroundScanner()
                 for i = #activeTargets, 1, -1 do
                     local part = activeTargets[i]
                     if not nearbyLookup[part] then
+                        if originalCanCollide[part] ~= nil then
+                            pcall(function()
+                                if part and part.Parent then
+                                    part.CanCollide = originalCanCollide[part]
+                                end
+                            end)
+                            originalCanCollide[part] = nil
+                        end
                         table.remove(activeTargets, i)
                     end
                 end
@@ -359,7 +363,7 @@ local function startBackgroundScanner()
                 table.clear(activeTargets)
             end
             
-            task.wait(0.5)
+            task.wait(0.3)
         end
     end)
 end
@@ -385,6 +389,12 @@ local function startOrbit()
             local part = activeTargets[i]
             if part and part.Parent and isValidOrbitPart(part) then
                 table.insert(validTargets, part)
+                
+                if originalCanCollide[part] == nil then
+                    originalCanCollide[part] = part.CanCollide
+                end
+                
+                part.CanCollide = false
             end
         end
         
@@ -394,13 +404,13 @@ local function startOrbit()
         local rawHeight = tonumber(HeightBox.Text) or 0
         local orbitHeight = math.clamp(rawHeight, -100, 100)
 
-        local rawRadius = tonumber(RadiusBox.Text) or 12
-        local orbitRadius = math.clamp(rawRadius, 1, 50)
+        local rawRadius = tonumber(RadiusBox.Text) or 150
+        local orbitRadius = math.clamp(rawRadius, 1, 150)
         
         local rawSpeed = tonumber(SpeedBox.Text) or 3.5
         local orbitSpeed = math.clamp(rawSpeed, 0, 50)
         
-        local currentTime = tick()
+        local currentTime = os.clock()
         local angleStep = (math.pi * 2) / count
         local selectedShape = shapesList[currentShapeIndex]
         
@@ -497,8 +507,11 @@ local function startOrbit()
             
             local targetPos = hrp.Position + Vector3.new(offsetX, offsetY, offsetZ)
             
-            part.CFrame = CFrame.new(targetPos, hrp.Position)
-            part.AssemblyLinearVelocity = Vector3.zero
+            -- P-Controller Physics Velocity Push (Allows replication without setting NetworkOwner)
+            local deltaPos = (targetPos - part.Position)
+            local speedFactor = 28
+            
+            part.AssemblyLinearVelocity = deltaPos * speedFactor
             part.AssemblyAngularVelocity = Vector3.zero
         end
     end)
@@ -513,6 +526,17 @@ local function stopOrbit()
         task.cancel(scanTask)
         scanTask = nil
     end
+
+    for part, originalState in pairs(originalCanCollide) do
+        pcall(function()
+            if part and part.Parent then
+                part.CanCollide = originalState
+                part.AssemblyLinearVelocity = Vector3.zero
+            end
+        end)
+    end
+
+    table.clear(originalCanCollide)
     table.clear(activeTargets)
     table.clear(validTargets)
     table.clear(nearbyLookup)
