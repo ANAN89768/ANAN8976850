@@ -1,0 +1,131 @@
+local setclipboard = setclipboard or toclipboard or set_clipboard
+
+if not setclipboard then
+    error("Your executor does not support setclipboard()")
+end
+
+local workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+
+local partsToExport = {}
+
+-- 1. Scan Workspace and filter out terrain & player characters
+for _, part in ipairs(workspace:GetDescendants()) do
+    if part:IsA("BasePart") and not part:IsA("Terrain") then
+        local isCharacter = false
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Character and part:IsDescendantOf(player.Character) then
+                isCharacter = true
+                break
+            end
+        end
+        
+        if not isCharacter then
+            table.insert(partsToExport, part)
+        end
+    end
+end
+
+-- Round numbers to keep clipboard data compact
+local function round(num)
+    return math.floor(num * 1000 + 0.5) / 1000
+end
+
+-- Detect part shape for F3X compatibility
+local function getShape(part)
+    if part:IsA("WedgePart") then return "Wedge" end
+    if part:IsA("CornerWedgePart") then return "CornerWedge" end
+    if part:IsA("TrussPart") then return "Truss" end
+    if part:IsA("Part") then
+        if part.Shape == Enum.PartType.Ball then return "Ball" end
+        if part.Shape == Enum.PartType.Cylinder then return "Cylinder" end
+    end
+    return "Normal"
+end
+
+local serializedLines = {}
+
+-- 2. Serialize each part into Luau table entries including Transparency and CanCollide
+for _, part in ipairs(partsToExport) do
+    local shape = getShape(part)
+    local cf = part.CFrame
+    local components = {cf:GetComponents()}
+    for i, v in ipairs(components) do components[i] = round(v) end
+    
+    local size = part.Size
+    local color = part.Color
+    local r, g, b = math.round(color.R * 255), math.round(color.G * 255), math.round(color.B * 255)
+    
+    local cfStr = string.format("CFrame.new(%s)", table.concat(components, ", "))
+    local sizeStr = string.format("Vector3.new(%s, %s, %s)", round(size.X), round(size.Y), round(size.Z))
+    local colorStr = string.format("Color3.fromRGB(%d, %d, %d)", r, g, b)
+    local matStr = "Enum.Material." .. part.Material.Name
+    local trans = round(part.Transparency)
+    local anch = part.Anchored and "true" or "false"
+    local canCollide = part.CanCollide and "true" or "false"
+    
+    local line = string.format('    {"%s", %s, %s, %s, %s, %s, %s, %s}', shape, cfStr, sizeStr, colorStr, matStr, trans, anch, canCollide)
+    table.insert(serializedLines, line)
+end
+
+-- 3. Construct the generated F3X Recreator Script
+local generatedScript = [[
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local function getF3X()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local backpack = LocalPlayer:WaitForChild("Backpack")
+
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
+    end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
+    end
+    return nil
+end
+
+local tool
+for i = 1, 10 do
+    tool = getF3X()
+    if tool then break end
+    task.wait(0.5)
+end
+
+if not tool then error("F3X / Building Tools not found in character or backpack!") end
+
+local serverEndpoint = tool:FindFirstChild("ServerEndpoint", true) or tool:FindFirstChild("SyncAPI", true)
+if serverEndpoint:IsA("Folder") or serverEndpoint:IsA("ModuleScript") then
+    serverEndpoint = serverEndpoint:FindFirstChild("ServerEndpoint", true) or serverEndpoint
+end
+
+local mapData = {
+]] .. table.concat(serializedLines, ",\n") .. [[
+
+}
+
+task.spawn(function()
+    print("Recreating " .. #mapData .. " parts via F3X...")
+    for i, data in ipairs(mapData) do
+        task.spawn(function()
+            local shape, cf, size, color, mat, trans, anch, canCollide = unpack(data)
+            local part = serverEndpoint:InvokeServer("CreatePart", shape, cf, workspace)
+            if part then
+                serverEndpoint:InvokeServer("SyncResize", {{Part = part, Size = size, CFrame = cf}})
+                serverEndpoint:InvokeServer("SyncColor", {{Part = part, Color = color}})
+                serverEndpoint:InvokeServer("SyncMaterial", {{Part = part, Material = mat}})
+                serverEndpoint:InvokeServer("SyncTransparency", {{Part = part, Transparency = trans}})
+                serverEndpoint:InvokeServer("SyncAnchor", {{Part = part, Anchored = anch}})
+                serverEndpoint:InvokeServer("SyncCollision", {{Part = part, CanCollide = canCollide}})
+            end
+        end)
+        if i % 20 == 0 then task.wait(0.05) end
+    end
+    print("Recreation process complete!")
+end)
+]]
+
+-- 4. Copy generated script to executor clipboard
+setclipboard(generatedScript)
+print("Successfully scanned " .. #partsToExport .. " parts! Generated F3X script copied to your clipboard.")
