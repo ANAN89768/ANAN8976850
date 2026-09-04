@@ -9,7 +9,7 @@ local Players = game:GetService("Players")
 
 local partsToExport = {}
 
--- 1. Scan Workspace and filter out terrain & player characters
+-- 1. Scan Workspace for all BaseParts (ignoring terrain and player characters)
 for _, part in ipairs(workspace:GetDescendants()) do
     if part:IsA("BasePart") and not part:IsA("Terrain") then
         local isCharacter = false
@@ -26,26 +26,77 @@ for _, part in ipairs(workspace:GetDescendants()) do
     end
 end
 
--- Round numbers to keep clipboard data compact
 local function round(num)
     return math.floor(num * 1000 + 0.5) / 1000
 end
 
--- Detect part shape for F3X compatibility
+-- Shape detection for F3X compatibility
 local function getShape(part)
-    if part:IsA("WedgePart") then return "Wedge" end
-    if part:IsA("CornerWedgePart") then return "CornerWedge" end
-    if part:IsA("TrussPart") then return "Truss" end
-    if part:IsA("Part") then
-        if part.Shape == Enum.PartType.Ball then return "Ball" end
-        if part.Shape == Enum.PartType.Cylinder then return "Cylinder" end
+    local className = part.ClassName
+
+    if className == "WedgePart" or part:IsA("WedgePart") then
+        return "Wedge"
+    elseif className == "CornerWedgePart" or part:IsA("CornerWedgePart") then
+        return "Corner"
+    elseif className == "TrussPart" or part:IsA("TrussPart") then
+        return "Truss"
     end
+    
+    local mesh = part:FindFirstChildOfClass("SpecialMesh")
+    if mesh then
+        if mesh.MeshType == Enum.MeshType.Wedge then return "Wedge"
+        elseif mesh.MeshType == Enum.MeshType.Sphere then return "Ball"
+        elseif mesh.MeshType == Enum.MeshType.Cylinder then return "Cylinder"
+        end
+    end
+
+    if part:IsA("Part") then
+        local success, shape = pcall(function() return part.Shape end)
+        if success and shape then
+            if shape == Enum.PartType.Ball or shape.Name == "Ball" then return "Ball"
+            elseif shape == Enum.PartType.Cylinder or shape.Name == "Cylinder" then return "Cylinder"
+            elseif shape.Name == "Wedge" then return "Wedge"
+            end
+        end
+    end
+
+    if part.Name:lower():find("wedge") then return "Wedge" end
     return "Normal"
+end
+
+-- Decal & Texture scanner capturing all properties
+local function getTextures(part)
+    local texList = {}
+    for _, child in ipairs(part:GetChildren()) do
+        if child:IsA("Decal") or child:IsA("Texture") then
+            local isTex = child:IsA("Texture")
+            local r, g, b = 255, 255, 255
+            
+            if pcall(function() return child.Color3 end) and child.Color3 then
+                r = math.round(child.Color3.R * 255)
+                g = math.round(child.Color3.G * 255)
+                b = math.round(child.Color3.B * 255)
+            end
+
+            table.insert(texList, {
+                Type = child.ClassName,
+                Face = child.Face.Name,
+                Texture = child.Texture,
+                Transparency = round(child.Transparency),
+                Color = string.format("Color3.fromRGB(%d, %d, %d)", r, g, b),
+                StudsPerTileU = isTex and round(child.StudsPerTileU) or 1,
+                StudsPerTileV = isTex and round(child.StudsPerTileV) or 1,
+                OffsetStudsU = isTex and round(child.OffsetStudsU) or 0,
+                OffsetStudsV = isTex and round(child.OffsetStudsV) or 0
+            })
+        end
+    end
+    return texList
 end
 
 local serializedLines = {}
 
--- 2. Serialize each part into Luau table entries including Transparency and CanCollide
+-- 2. Serialize parts, shapes, physics, transparency, and decals/textures
 for _, part in ipairs(partsToExport) do
     local shape = getShape(part)
     local cf = part.CFrame
@@ -60,15 +111,27 @@ for _, part in ipairs(partsToExport) do
     local sizeStr = string.format("Vector3.new(%s, %s, %s)", round(size.X), round(size.Y), round(size.Z))
     local colorStr = string.format("Color3.fromRGB(%d, %d, %d)", r, g, b)
     local matStr = "Enum.Material." .. part.Material.Name
-    local trans = round(part.Transparency)
+    
+    local exactTrans = math.clamp(part.Transparency, 0, 1)
+    local transStr = tostring(math.floor(exactTrans * 10000 + 0.5) / 10000)
+    
     local anch = part.Anchored and "true" or "false"
     local canCollide = part.CanCollide and "true" or "false"
     
-    local line = string.format('    {"%s", %s, %s, %s, %s, %s, %s, %s}', shape, cfStr, sizeStr, colorStr, matStr, trans, anch, canCollide)
+    local textures = getTextures(part)
+    local texSerialized = {}
+    for _, t in ipairs(textures) do
+        local tLine = string.format('{Type = "%s", Face = Enum.NormalId.%s, Texture = "%s", Transparency = %s, Color = %s, StudsPerTileU = %s, StudsPerTileV = %s, OffsetStudsU = %s, OffsetStudsV = %s}',
+            t.Type, t.Face, t.Texture, tostring(t.Transparency), t.Color, tostring(t.StudsPerTileU), tostring(t.StudsPerTileV), tostring(t.OffsetStudsU), tostring(t.OffsetStudsV))
+        table.insert(texSerialized, tLine)
+    end
+    local texTableStr = "{" .. table.concat(texSerialized, ", ") .. "}"
+    
+    local line = string.format('    {"%s", %s, %s, %s, %s, %s, %s, %s, %s}', shape, cfStr, sizeStr, colorStr, matStr, transStr, anch, canCollide, texTableStr)
     table.insert(serializedLines, line)
 end
 
--- 3. Construct the generated F3X Recreator Script
+-- 3. Construct generated F3X Recreation Script
 local generatedScript = [[
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -106,26 +169,49 @@ local mapData = {
 }
 
 task.spawn(function()
-    print("Recreating " .. #mapData .. " parts via F3X...")
+    print("Recreating " .. #mapData .. " parts with Decals & Textures via F3X...")
     for i, data in ipairs(mapData) do
         task.spawn(function()
-            local shape, cf, size, color, mat, trans, anch, canCollide = unpack(data)
+            local shape, cf, size, color, mat, trans, anch, canCollide, textures = unpack(data)
+            
+            -- Create Base Part
             local part = serverEndpoint:InvokeServer("CreatePart", shape, cf, workspace)
             if part then
+                if shape ~= "Normal" then
+                    serverEndpoint:InvokeServer("SyncShape", {{Part = part, Shape = shape}})
+                end
+                
                 serverEndpoint:InvokeServer("SyncResize", {{Part = part, Size = size, CFrame = cf}})
                 serverEndpoint:InvokeServer("SyncColor", {{Part = part, Color = color}})
                 serverEndpoint:InvokeServer("SyncMaterial", {{Part = part, Material = mat}})
                 serverEndpoint:InvokeServer("SyncTransparency", {{Part = part, Transparency = trans}})
                 serverEndpoint:InvokeServer("SyncAnchor", {{Part = part, Anchored = anch}})
                 serverEndpoint:InvokeServer("SyncCollision", {{Part = part, CanCollide = canCollide}})
+
+                -- Create and Sync Decals / Textures
+                if textures and #textures > 0 then
+                    for _, t in ipairs(textures) do
+                        local texObj = serverEndpoint:InvokeServer("CreateTexture", part, t.Face, t.Type)
+                        serverEndpoint:InvokeServer("SyncTexture", {{
+                            Part = part,
+                            Face = t.Face,
+                            Texture = t.Texture,
+                            Transparency = t.Transparency,
+                            Color = t.Color,
+                            StudsPerTileU = t.StudsPerTileU,
+                            StudsPerTileV = t.StudsPerTileV,
+                            OffsetStudsU = t.OffsetStudsU,
+                            OffsetStudsV = t.OffsetStudsV
+                        }})
+                    end
+                end
             end
         end)
-        if i % 20 == 0 then task.wait(0.05) end
+        if i % 15 == 0 then task.wait(0.05) end
     end
     print("Recreation process complete!")
 end)
 ]]
 
--- 4. Copy generated script to executor clipboard
 setclipboard(generatedScript)
-print("Successfully scanned " .. #partsToExport .. " parts! Generated F3X script copied to your clipboard.")
+print("Scanned " .. #partsToExport .. " parts with Decal/Texture detection! Script copied to clipboard.")
