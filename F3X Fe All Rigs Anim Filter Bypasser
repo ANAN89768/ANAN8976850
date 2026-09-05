@@ -1,0 +1,208 @@
+-- F3X FE All Rigs Anim Filter Bypasser
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local function getF3X()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local backpack = LocalPlayer:WaitForChild("Backpack")
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
+    end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
+    end
+    return nil
+end
+
+local tool = getF3X()
+if not tool then error("❌ F3X Tool not found in Character or Backpack!") end
+
+local serverEndpoint = tool:FindFirstChild("ServerEndpoint", true) or tool:FindFirstChild("SyncAPI", true)
+if serverEndpoint:IsA("Folder") or serverEndpoint:IsA("ModuleScript") then
+    serverEndpoint = serverEndpoint:FindFirstChild("ServerEndpoint", true) or serverEndpoint
+end
+
+local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- R6 & R15 Layouts (Head size set to 1.25, 1.25, 1.25)
+local r6Layout = {
+    {Name = "Head", Size = Vector3.new(1.25, 1.25, 1.25), IsHead = true},
+    {Name = "Torso", Size = Vector3.new(2, 2, 1)},
+    {Name = "Left Arm", Size = Vector3.new(1, 2, 1)},
+    {Name = "Right Arm", Size = Vector3.new(1, 2, 1)},
+    {Name = "Left Leg", Size = Vector3.new(1, 2, 1)},
+    {Name = "Right Leg", Size = Vector3.new(1, 2, 1)},
+}
+
+local r15Layout = {
+    {Name = "Head", Size = Vector3.new(1.25, 1.25, 1.25), IsHead = true},
+    {Name = "UpperTorso", Size = Vector3.new(2, 1, 1)},
+    {Name = "LowerTorso", Size = Vector3.new(2, 1, 1)},
+    {Name = "LeftUpperArm", Size = Vector3.new(1, 1, 1)},
+    {Name = "LeftLowerArm", Size = Vector3.new(1, 1, 1)},
+    {Name = "LeftHand", Size = Vector3.new(1, 0.3, 1)},
+    {Name = "RightUpperArm", Size = Vector3.new(1, 1, 1)},
+    {Name = "RightLowerArm", Size = Vector3.new(1, 1, 1)},
+    {Name = "RightHand", Size = Vector3.new(1, 0.3, 1)},
+    {Name = "LeftUpperLeg", Size = Vector3.new(1, 1, 1)},
+    {Name = "LeftLowerLeg", Size = Vector3.new(1, 1, 1)},
+    {Name = "LeftFoot", Size = Vector3.new(1, 0.3, 1)},
+    {Name = "RightUpperLeg", Size = Vector3.new(1, 1, 1)},
+    {Name = "RightLowerLeg", Size = Vector3.new(1, 1, 1)},
+    {Name = "RightFoot", Size = Vector3.new(1, 0.3, 1)},
+}
+
+local isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+local rigLayout = isR15 and r15Layout or r6Layout
+
+print("⚡ RIG DETECTED: " .. (isR15 and "R15" or "R6") .. " (HEAD SIZE: 1.25, 1.25, 1.25) ⚡")
+
+task.spawn(function()
+    local createdRigParts = {}
+    local rawFakePartsList = {}
+    local createQueue = {}
+
+    for _, limb in ipairs(rigLayout) do
+        local targetPart = character:FindFirstChild(limb.Name)
+        if targetPart then
+            table.insert(createQueue, {
+                Name = limb.Name,
+                TargetPart = targetPart,
+                CFrame = targetPart.CFrame,
+                Size = limb.Size or targetPart.Size,
+                Color = targetPart.Color,
+                Material = targetPart.Material,
+                IsHead = limb.IsHead or false
+            })
+        end
+    end
+
+    -- 1. CREATE FAKE RIG PARTS
+    for _, item in ipairs(createQueue) do
+        local ok, newPart = pcall(function()
+            return serverEndpoint:InvokeServer("CreatePart", "Normal", item.CFrame, workspace)
+        end)
+        
+        if ok and newPart then
+            table.insert(createdRigParts, {
+                Name = item.Name,
+                FakePart = newPart,
+                RealPart = item.TargetPart,
+                Size = item.Size,
+                Color = item.Color,
+                Material = item.Material,
+                IsHead = item.IsHead
+            })
+            table.insert(rawFakePartsList, newPart)
+        end
+    end
+
+    task.wait(0.1)
+
+    -- 2. APPLY PROPERTIES
+    local resizeBatch = {}
+    local anchorBatch = {}
+    local collideBatch = {}
+    local colorBatch = {}
+    local materialBatch = {}
+    local hideRealLimbsBatch = {}
+
+    for _, data in ipairs(createdRigParts) do
+        local fake = data.FakePart
+        local real = data.RealPart
+
+        table.insert(resizeBatch, {Part = fake, Size = data.Size, CFrame = real.CFrame})
+        table.insert(anchorBatch, {Part = fake, Anchored = true})
+        table.insert(collideBatch, {Part = fake, CanCollide = false})
+        table.insert(colorBatch, {Part = fake, Color = data.Color})
+        table.insert(materialBatch, {Part = fake, Material = data.Material})
+        
+        table.insert(hideRealLimbsBatch, {Part = real, Transparency = 1})
+    end
+
+    pcall(function() serverEndpoint:InvokeServer("SyncResize", resizeBatch) end)
+    pcall(function() serverEndpoint:InvokeServer("SyncAnchor", anchorBatch) end)
+    pcall(function() serverEndpoint:InvokeServer("SyncCollision", collideBatch) end)
+    pcall(function() serverEndpoint:InvokeServer("SyncColor", colorBatch) end)
+    pcall(function() serverEndpoint:InvokeServer("SyncMaterial", materialBatch) end)
+    pcall(function() serverEndpoint:InvokeServer("SyncTransparency", hideRealLimbsBatch) end)
+
+    -- 3. APPLY HEAD MESH
+    for _, data in ipairs(createdRigParts) do
+        if data.IsHead then
+            pcall(function()
+                serverEndpoint:InvokeServer("CreateMesh", data.FakePart, "Head")
+            end)
+            pcall(function()
+                serverEndpoint:InvokeServer("SyncMesh", {
+                    {Part = data.FakePart, MeshType = "Head", Scale = Vector3.new(1.25, 1.25, 1.25)}
+                })
+            end)
+        end
+    end
+
+    -- 4. REAL CHARACTER INVISIBILITY OVERRIDE
+    local realPartsToHide = {}
+    for _, child in ipairs(character:GetChildren()) do
+        if child:IsA("BasePart") then
+            table.insert(realPartsToHide, child)
+        elseif child:IsA("Accessory") and child:FindFirstChild("Handle") then
+            table.insert(realPartsToHide, child.Handle)
+        end
+    end
+
+    local hideLoop = RunService.RenderStepped:Connect(function()
+        for _, part in ipairs(realPartsToHide) do
+            if part and part.Parent then
+                part.Transparency = 1
+                local decal = part:FindFirstChildOfClass("Decal")
+                if decal then decal.Transparency = 1 end
+            end
+        end
+    end)
+
+    -- 5. POSITION TRACKING LOOP
+    local trackingConnection
+    local lastUpdate = 0
+    local UPDATE_INTERVAL = 0.03
+
+    trackingConnection = RunService.Heartbeat:Connect(function(dt)
+        lastUpdate = lastUpdate + dt
+        if lastUpdate >= UPDATE_INTERVAL then
+            lastUpdate = 0
+            
+            local moveBatch = {}
+            for _, data in ipairs(createdRigParts) do
+                if data.FakePart and data.RealPart and data.RealPart.Parent then
+                    table.insert(moveBatch, {
+                        Part = data.FakePart,
+                        CFrame = data.RealPart.CFrame
+                    })
+                end
+            end
+
+            if #moveBatch > 0 then
+                pcall(function()
+                    serverEndpoint:InvokeServer("SyncMove", moveBatch)
+                end)
+            end
+        end
+    end)
+
+    -- 6. AUTO-CLEANUP ON DEATH
+    local function cleanup()
+        if hideLoop then hideLoop:Disconnect() end
+        if trackingConnection then trackingConnection:Disconnect() end
+
+        if #rawFakePartsList > 0 then
+            pcall(function()
+                serverEndpoint:InvokeServer("Remove", rawFakePartsList)
+            end)
+        end
+    end
+
+    humanoid.Died:Connect(cleanup)
+end)
