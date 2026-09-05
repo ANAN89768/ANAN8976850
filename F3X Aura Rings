@@ -1,0 +1,192 @@
+-- F3X Aura Rings
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local function getF3X()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local backpack = LocalPlayer:WaitForChild("Backpack")
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
+    end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
+    end
+    return nil
+end
+
+local tool = getF3X()
+if not tool then error("❌ F3X Tool not found in Character or Backpack!") end
+
+local serverEndpoint = tool:FindFirstChild("ServerEndpoint", true) or tool:FindFirstChild("SyncAPI", true)
+if serverEndpoint:IsA("Folder") or serverEndpoint:IsA("ModuleScript") then
+    serverEndpoint = serverEndpoint:FindFirstChild("ServerEndpoint", true) or serverEndpoint
+end
+
+local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local torsoPart = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:WaitForChild("HumanoidRootPart")
+
+-- MAXIMUM TUFF RING ARRAY CONFIGURATION
+local RING_SPECS = {
+    -- 1. Outer Chaos Ring (Blood Crimson - Ultra Wide, Fast Clockwise)
+    { Radius = 12.0, TiltX = 55, TiltZ = -30, Color = Color3.fromRGB(255, 0, 40), Count = 48, Speed = 3.5, Dir = 1, Size = Vector3.new(0.6, 0.35, 1.4) },
+    
+    -- 2. Counter Chaos Ring (Electric Cyan - Reverse Tilt & High Pitch)
+    { Radius = 12.0, TiltX = -55, TiltZ = 30, Color = Color3.fromRGB(0, 240, 255), Count = 48, Speed = -3.5, Dir = -1, Size = Vector3.new(0.6, 0.35, 1.4) },
+    
+    -- 3. Heavy Mid Halo (Deep Electric Violet - Steep Diagonal Spin)
+    { Radius = 8.8, TiltX = -70, TiltZ = -45, Color = Color3.fromRGB(180, 0, 255), Count = 36, Speed = 4.2, Dir = 1, Size = Vector3.new(0.5, 0.3, 1.2) },
+    
+    -- 4. Reverse Mid Blade Ring (Crimson Neon - Opposing Pitch)
+    { Radius = 8.8, TiltX = 70, TiltZ = 45, Color = Color3.fromRGB(255, 10, 60), Count = 36, Speed = -4.2, Dir = -1, Size = Vector3.new(0.5, 0.3, 1.2) },
+    
+    -- 5. Inner Defense Ring (Hyper Cyan - Fast Tight Orbit)
+    { Radius = 5.5, TiltX = 30, TiltZ = 80, Color = Color3.fromRGB(0, 255, 200), Count = 28, Speed = 5.5, Dir = 1, Size = Vector3.new(0.4, 0.25, 1.0) },
+    
+    -- 6. Core Shards Ring (Pure Blood Red - Hyper Speed Pulse)
+    { Radius = 3.2, TiltX = -85, TiltZ = -15, Color = Color3.fromRGB(255, 0, 0), Count = 18, Speed = -7.0, Dir = -1, Size = Vector3.new(0.35, 0.2, 0.8) }
+}
+
+print("⚡ CONSTRUCTING 1000X TUFF ORBITAL STORM ⚡")
+
+task.spawn(function()
+    local ringNodes = {}
+    local rawPartsList = {}
+    local spawnThreadCount = 0
+    local totalExpectedParts = 0
+
+    for _, spec in ipairs(RING_SPECS) do
+        totalExpectedParts = totalExpectedParts + spec.Count
+    end
+
+    local startCFrame = torsoPart.CFrame
+
+    -- 1. INSTANT PARALLEL MULTI-THREADED SPAWNING
+    for ringIndex, spec in ipairs(RING_SPECS) do
+        for i = 1, spec.Count do
+            spawnThreadCount = spawnThreadCount + 1
+            task.spawn(function()
+                local ok, part = pcall(function()
+                    return serverEndpoint:InvokeServer("CreatePart", "Normal", startCFrame, workspace)
+                end)
+                if ok and part then
+                    table.insert(ringNodes, {
+                        Part = part,
+                        RingIndex = ringIndex,
+                        SegmentIndex = i,
+                        Spec = spec
+                    })
+                    table.insert(rawPartsList, part)
+                end
+                spawnThreadCount = spawnThreadCount - 1
+            end)
+        end
+    end
+
+    repeat task.wait() until spawnThreadCount == 0 or #rawPartsList >= totalExpectedParts
+
+    -- 2. APPLY STYLING & BATCH PROPERTIES
+    local resizeBatch = {}
+    local anchorBatch = {}
+    local collideBatch = {}
+    local colorBatch = {}
+    local materialBatch = {}
+
+    for _, node in ipairs(ringNodes) do
+        table.insert(resizeBatch, {Part = node.Part, Size = node.Spec.Size, CFrame = startCFrame})
+        table.insert(anchorBatch, {Part = node.Part, Anchored = true})
+        table.insert(collideBatch, {Part = node.Part, CanCollide = false})
+        table.insert(colorBatch, {Part = node.Part, Color = node.Spec.Color})
+        table.insert(materialBatch, {Part = node.Part, Material = Enum.Material.Neon})
+    end
+
+    task.spawn(function() pcall(function() serverEndpoint:InvokeServer("SyncResize", resizeBatch) end) end)
+    task.spawn(function() pcall(function() serverEndpoint:InvokeServer("SyncAnchor", anchorBatch) end) end)
+    task.spawn(function() pcall(function() serverEndpoint:InvokeServer("SyncCollision", collideBatch) end) end)
+    task.spawn(function() pcall(function() serverEndpoint:InvokeServer("SyncColor", colorBatch) end) end)
+    task.spawn(function() pcall(function() serverEndpoint:InvokeServer("SyncMaterial", materialBatch) end) end)
+
+    -- 3. AUTO-CLEANUP ON DEATH OR CHARACTER LOST
+    local cleanedUp = false
+    local trackingConnection
+
+    local function cleanup()
+        if cleanedUp then return end
+        cleanedUp = true
+
+        print("☠️ CHARACTER LOST / DIED! REMOVING RINGS VIA F3X...")
+        if trackingConnection then trackingConnection:Disconnect() end
+
+        if #rawPartsList > 0 then
+            pcall(function()
+                serverEndpoint:InvokeServer("Remove", rawPartsList)
+            end)
+        end
+    end
+
+    -- 4. DYNAMIC GYROSCOPIC ORBIT LOOP
+    local timeElapsed = 0
+    local lastUpdate = 0
+    local UPDATE_INTERVAL = 0.02
+
+    trackingConnection = RunService.Heartbeat:Connect(function(dt)
+        if not character or not character.Parent or not torsoPart or not torsoPart.Parent or not humanoid or humanoid.Health <= 0 then
+            cleanup()
+            return
+        end
+
+        lastUpdate = lastUpdate + dt
+        if lastUpdate >= UPDATE_INTERVAL then
+            lastUpdate = 0
+            timeElapsed = timeElapsed + dt
+
+            local moveBatch = {}
+            local centerPos = torsoPart.Position
+
+            for _, node in ipairs(ringNodes) do
+                if node.Part and node.Part.Parent then
+                    local spec = node.Spec
+                    local step = (math.pi * 2) / spec.Count
+                    local currentAngle = (timeElapsed * spec.Speed) + (node.SegmentIndex * step)
+
+                    -- Dynamic radial pulse wave
+                    local pulseOffset = math.sin((timeElapsed * 4) + node.RingIndex) * 0.6
+                    local radius = spec.Radius + pulseOffset
+
+                    local localX = math.cos(currentAngle) * radius
+                    local localZ = math.sin(currentAngle) * radius
+                    local baseLocalPos = Vector3.new(localX, 0, localZ)
+
+                    -- Complex gyroscopic angle tilt matrix
+                    local tiltRotation = CFrame.Angles(
+                        math.rad(spec.TiltX + (math.sin(timeElapsed * 2.5) * 15)),
+                        math.rad(timeElapsed * 30 * spec.Dir),
+                        math.rad(spec.TiltZ + (math.cos(timeElapsed * 2.5) * 15))
+                    )
+                    local transformedPos = tiltRotation * baseLocalPos
+
+                    local facingAngle = currentAngle + (math.pi / 2)
+                    local baseCF = CFrame.new(centerPos + transformedPos) * tiltRotation * CFrame.Angles(0, facingAngle, 0)
+
+                    table.insert(moveBatch, {
+                        Part = node.Part,
+                        CFrame = baseCF
+                    })
+                end
+            end
+
+            if #moveBatch > 0 then
+                pcall(function()
+                    serverEndpoint:InvokeServer("SyncMove", moveBatch)
+                end)
+            end
+        end
+    end)
+
+    humanoid.Died:Connect(cleanup)
+    character.AncestryChanged:Connect(function(_, parent)
+        if not parent then cleanup() end
+    end)
+end)
