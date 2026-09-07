@@ -1,0 +1,420 @@
+-- F3X 3D Text Generator
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+while not LocalPlayer do
+    task.wait(0.1)
+    LocalPlayer = Players.LocalPlayer
+end
+
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+if PlayerGui:FindFirstChild("F3XTextPromptGui") then
+    PlayerGui.F3XTextPromptGui:Destroy()
+end
+
+if Workspace:FindFirstChild("F3X_TextPreview_Client") then
+    Workspace.F3X_TextPreview_Client:Destroy()
+end
+
+-- 1. COLOR MATRIX
+local colors = {
+    {Name = "Cyan", Color = Color3.fromRGB(0, 255, 255)},
+    {Name = "White", Color = Color3.fromRGB(255, 255, 255)},
+    {Name = "Red", Color = Color3.fromRGB(255, 60, 60)},
+    {Name = "Green", Color = Color3.fromRGB(60, 255, 60)},
+    {Name = "Blue", Color = Color3.fromRGB(60, 140, 255)},
+    {Name = "Yellow", Color = Color3.fromRGB(255, 230, 50)},
+    {Name = "Orange", Color = Color3.fromRGB(255, 140, 0)},
+    {Name = "Magenta", Color = Color3.fromRGB(255, 60, 255)},
+    {Name = "Black", Color = Color3.fromRGB(25, 25, 25)},
+    {Name = "Gold", Color = Color3.fromRGB(235, 180, 40)}
+}
+local colorIndex = 1 -- Default: Cyan
+
+-- 2. STREAMLINED ULTRA-COMPACT GUI (240x112 PIXELS)
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "F3XTextPromptGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = PlayerGui
+
+local Frame = Instance.new("Frame", ScreenGui)
+Frame.Size = UDim2.new(0, 240, 0, 112)
+Frame.Position = UDim2.new(0.5, -120, 0.35, -56)
+Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Frame.BorderSizePixel = 0
+Frame.Active = true
+Frame.Draggable = true
+Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 8)
+
+local UIStroke = Instance.new("UIStroke", Frame)
+UIStroke.Color = Color3.fromRGB(50, 50, 50)
+UIStroke.Thickness = 1
+
+local Title = Instance.new("TextLabel", Frame)
+Title.Size = UDim2.new(1, 0, 0, 18)
+Title.Position = UDim2.new(0, 0, 0, 2)
+Title.BackgroundTransparency = 1
+Title.Text = "F3X Text Studio"
+Title.TextColor3 = Color3.fromRGB(160, 160, 160)
+Title.TextSize = 11
+Title.Font = Enum.Font.SourceSansBold
+
+local TextBox = Instance.new("TextBox", Frame)
+TextBox.Size = UDim2.new(0, 220, 0, 26)
+TextBox.Position = UDim2.new(0, 10, 0, 20)
+TextBox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+TextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+TextBox.PlaceholderText = "Type text..."
+TextBox.Text = ""
+TextBox.TextSize = 12
+TextBox.Font = Enum.Font.SourceSansBold
+TextBox.ClearTextOnFocus = false
+Instance.new("UICorner", TextBox).CornerRadius = UDim.new(0, 5)
+
+-- Size & Color Row
+local SizeBox = Instance.new("TextBox", Frame)
+SizeBox.Size = UDim2.new(0, 105, 0, 22)
+SizeBox.Position = UDim2.new(0, 10, 0, 50)
+SizeBox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+SizeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SizeBox.PlaceholderText = "Size: 0.5"
+SizeBox.Text = "0.5"
+SizeBox.TextSize = 11
+SizeBox.Font = Enum.Font.SourceSansBold
+SizeBox.ClearTextOnFocus = false
+Instance.new("UICorner", SizeBox).CornerRadius = UDim.new(0, 5)
+
+local ColorBtn = Instance.new("TextButton", Frame)
+ColorBtn.Size = UDim2.new(0, 105, 0, 22)
+ColorBtn.Position = UDim2.new(0, 125, 0, 50)
+ColorBtn.BackgroundColor3 = colors[colorIndex].Color
+ColorBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+ColorBtn.Text = "Color: " .. colors[colorIndex].Name
+ColorBtn.TextSize = 11
+ColorBtn.Font = Enum.Font.SourceSansBold
+Instance.new("UICorner", ColorBtn).CornerRadius = UDim.new(0, 5)
+
+-- Build Button
+local SubmitBtn = Instance.new("TextButton", Frame)
+SubmitBtn.Size = UDim2.new(0, 220, 0, 26)
+SubmitBtn.Position = UDim2.new(0, 10, 0, 76)
+SubmitBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 120)
+SubmitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SubmitBtn.Text = "BUILD 3D TEXT"
+SubmitBtn.TextSize = 12
+SubmitBtn.Font = Enum.Font.SourceSansBold
+Instance.new("UICorner", SubmitBtn).CornerRadius = UDim.new(0, 5)
+
+-- 3. UNIVERSAL EXECUTOR F3X HANDLER
+local function getF3X()
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    local char = LocalPlayer.Character
+    local tool = nil
+
+    if char then
+        for _, v in ipairs(char:GetChildren()) do
+            if v:IsA("Tool") and (v.Name:lower():find("building") or v.Name:lower():find("f3x") or v:FindFirstChild("SyncAPI", true)) then
+                return v
+            end
+        end
+    end
+
+    if bp then
+        for _, v in ipairs(bp:GetChildren()) do
+            if v:IsA("Tool") and (v.Name:lower():find("building") or v.Name:lower():find("f3x") or v:FindFirstChild("SyncAPI", true)) then
+                tool = v
+                break
+            end
+        end
+    end
+
+    if tool and char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:EquipTool(tool)
+            task.wait(0.05)
+        end
+    end
+
+    return tool or (char and char:FindFirstChildOfClass("Tool"))
+end
+
+local function f3xCall(action, ...)
+    local tool = getF3X()
+    if not tool then return false, nil end
+
+    local api = tool:FindFirstChild("SyncAPI", true) or tool:FindFirstChild("ServerEndpoint", true)
+    local remote = api and (api:IsA("RemoteFunction") and api or api:FindFirstChild("ServerEndpoint") or api)
+
+    if remote then
+        return pcall(function(...)
+            return remote:InvokeServer(action, ...)
+        end, ...)
+    end
+    return false, nil
+end
+
+-- 4. CHARACTER FONT MATRIX
+local font = {
+    A={{1,1,1},{1,0,1},{1,1,1},{1,0,1},{1,0,1}}, B={{1,1,0},{1,0,1},{1,1,0},{1,0,1},{1,1,0}},
+    C={{1,1,1},{1,0,0},{1,0,0},{1,0,0},{1,1,1}}, D={{1,1,0},{1,0,1},{1,0,1},{1,0,1},{1,1,0}},
+    E={{1,1,1},{1,0,0},{1,1,1},{1,0,0},{1,1,1}}, F={{1,1,1},{1,0,0},{1,1,0},{1,0,0},{1,0,0}},
+    G={{1,1,1},{1,0,0},{1,0,1},{1,0,1},{1,1,1}}, H={{1,0,1},{1,0,1},{1,1,1},{1,0,1},{1,0,1}},
+    I={{1,1,1},{0,1,0},{0,1,0},{0,1,0},{1,1,1}}, J={{0,0,1},{0,0,1},{0,0,1},{1,0,1},{1,1,1}},
+    K={{1,0,1},{1,0,1},{1,1,0},{1,0,1},{1,0,1}}, L={{1,0,0},{1,0,0},{1,0,0},{1,0,0},{1,1,1}},
+    M={{1,0,1},{1,1,1},{1,0,1},{1,0,1},{1,0,1}}, N={{1,1,1},{1,0,1},{1,0,1},{1,0,1},{1,0,1}},
+    O={{1,1,1},{1,0,1},{1,0,1},{1,0,1},{1,1,1}}, P={{1,1,1},{1,0,1},{1,1,1},{1,0,0},{1,0,0}},
+    Q={{1,1,1},{1,0,1},{1,0,1},{1,1,1},{0,0,1}}, R={{1,1,1},{1,0,1},{1,1,0},{1,0,1},{1,0,1}},
+    S={{1,1,1},{1,0,0},{1,1,1},{0,0,1},{1,1,1}}, T={{1,1,1},{0,1,0},{0,1,0},{0,1,0},{0,1,0}},
+    U={{1,0,1},{1,0,1},{1,0,1},{1,0,1},{1,1,1}}, V={{1,0,1},{1,0,1},{1,0,1},{1,0,1},{0,1,0}},
+    W={{1,0,1},{1,0,1},{1,0,1},{1,1,1},{1,0,1}}, X={{1,0,1},{1,0,1},{0,1,0},{1,0,1},{1,0,1}},
+    Y={{1,0,1},{1,0,1},{1,1,1},{0,1,0},{0,1,0}}, Z={{1,1,1},{0,0,1},{0,1,0},{1,0,0},{1,1,1}},
+
+    a={{0,0,0},{1,1,1},{0,0,1},{1,1,1},{1,0,1}}, b={{1,0,0},{1,1,0},{1,0,1},{1,0,1},{1,1,0}},
+    c={{0,0,0},{0,1,1},{1,0,0},{1,0,0},{0,1,1}}, d={{0,0,1},{0,1,1},{1,0,1},{1,0,1},{0,1,1}},
+    e={{0,0,0},{0,1,0},{1,1,1},{1,0,0},{0,1,1}}, f={{0,1,1},{0,1,0},{1,1,1},{0,1,0},{0,1,0}},
+    g={{0,0,0},{0,1,1},{1,0,1},{0,1,1},{0,0,1}}, h={{1,0,0},{1,1,0},{1,0,1},{1,0,1},{1,0,1}},
+    i={{0,1,0},{0,0,0},{0,1,0},{0,1,0},{0,1,0}}, j={{0,0,1},{0,0,0},{0,0,1},{1,0,1},{0,1,0}},
+    k={{1,0,0},{1,0,1},{1,1,0},{1,0,1},{1,0,1}}, l={{0,1,0},{0,1,0},{0,1,0},{0,1,0},{0,0,1}},
+    m={{0,0,0},{1,0,1},{1,1,1},{1,0,1},{1,0,1}}, n={{0,0,0},{1,1,0},{1,0,1},{1,0,1},{1,0,1}},
+    o={{0,0,0},{0,1,0},{1,0,1},{1,0,1},{0,1,0}}, p={{0,0,0},{1,1,0},{1,0,1},{1,1,0},{1,0,0}},
+    q={{0,0,0},{0,1,1},{1,0,1},{0,1,1},{0,0,1}}, r={{0,0,0},{1,0,1},{1,1,0},{1,0,0},{1,0,0}},
+    s={{0,0,0},{0,1,1},{1,0,0},{0,0,1},{1,1,0}}, t={{0,1,0},{1,1,1},{0,1,0},{0,1,0},{0,0,1}},
+    u={{0,0,0},{1,0,1},{1,0,1},{1,0,1},{0,1,1}}, v={{0,0,0},{1,0,1},{1,0,1},{1,0,1},{0,1,0}},
+    w={{0,0,0},{1,0,1},{1,0,1},{1,1,1},{1,0,1}}, x={{0,0,0},{1,0,1},{0,1,0},{1,0,1},{1,0,1}},
+    y={{0,0,0},{1,0,1},{0,1,1},{0,0,1},{0,1,0}}, z={{0,0,0},{1,1,1},{0,1,0},{1,0,0},{1,1,1}},
+
+    ["0"]={{1,1,1},{1,0,1},{1,0,1},{1,0,1},{1,1,1}}, ["1"]={{0,1,0},{1,1,0},{0,1,0},{0,1,0},{1,1,1}},
+    ["2"]={{1,1,1},{0,0,1},{1,1,1},{1,0,0},{1,1,1}}, ["3"]={{1,1,1},{0,0,1},{1,1,1},{0,0,1},{1,1,1}},
+    ["4"]={{1,0,1},{1,0,1},{1,1,1},{0,0,1},{0,0,1}}, ["5"]={{1,1,1},{1,0,0},{1,1,1},{0,0,1},{1,1,1}},
+    ["6"]={{1,1,1},{1,0,0},{1,1,1},{1,0,1},{1,1,1}}, ["7"]={{1,1,1},{0,0,1},{0,1,0},{0,1,0},{0,1,0}},
+    ["8"]={{1,1,1},{1,0,1},{1,1,1},{1,0,1},{1,1,1}}, ["9"]={{1,1,1},{1,0,1},{1,1,1},{0,0,1},{1,1,1}},
+
+    ["."]= {{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,1,0}}, ["!"]= {{0,1,0},{0,1,0},{0,1,0},{0,0,0},{0,1,0}},
+    ["?"]= {{1,1,1},{0,0,1},{0,1,0},{0,0,0},{0,1,0}}, [" "]= {{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}},
+    ["("]= {{0,1,1},{1,0,0},{1,0,0},{1,0,0},{0,1,1}}, [")"]= {{1,1,0},{0,0,1},{0,0,1},{0,0,1},{1,1,0}},
+    ["-"]= {{0,0,0},{0,0,0},{1,1,1},{0,0,0},{0,0,0}}, ["+"]= {{0,0,0},{0,1,0},{1,1,1},{0,1,0},{0,0,0}},
+    ["="]= {{0,0,0},{1,1,1},{0,0,0},{1,1,1},{0,0,0}}, [","]= {{0,0,0},{0,0,0},{0,0,0},{0,1,0},{1,0,0}},
+    [":"]= {{0,0,0},{0,1,0},{0,0,0},{0,1,0},{0,0,0}}, [";"]= {{0,0,0},{0,1,0},{0,0,0},{0,1,0},{1,0,0}},
+    ["'"]= {{0,1,0},{0,1,0},{0,0,0},{0,0,0},{0,0,0}}, ['"']= {{1,0,1},{1,0,1},{0,0,0},{0,0,0},{0,0,0}},
+    ["/"]= {{0,0,1},{0,0,1},{0,1,0},{1,0,0},{1,0,0}}, ["\\"]={{1,0,0},{1,0,0},{0,1,0},{0,0,1},{0,0,1}},
+    ["_"]= {{0,0,0},{0,0,0},{0,0,0},{0,0,0},{1,1,1}}, ["["]= {{1,1,1},{1,0,0},{1,0,0},{1,0,0},{1,1,1}},
+    ["]"]= {{1,1,1},{0,0,1},{0,0,1},{0,0,1},{1,1,1}}, ["<"]= {{0,0,1},{0,1,0},{1,0,0},{0,1,0},{0,0,1}},
+    [">"]= {{1,0,0},{0,1,0},{0,0,1},{0,1,0},{1,0,0}}, ["#"]= {{1,0,1},{1,1,1},{1,0,1},{1,1,1},{1,0,1}},
+    ["@"]= {{1,1,1},{1,0,1},{1,1,1},{1,0,0},{1,1,1}}, ["$"]= {{0,1,0},{1,1,1},{1,0,0},{1,1,1},{0,1,0}},
+    ["%"]= {{1,0,1},{0,0,1},{0,1,0},{1,0,0},{1,0,1}}, ["&"]= {{0,1,0},{1,0,1},{0,1,0},{1,0,1},{1,1,1}},
+    ["*"]= {{1,0,1},{0,1,0},{1,1,1},{0,1,0},{1,0,1}}, ["^"]= {{0,1,0},{1,0,1},{0,0,0},{0,0,0},{0,0,0}},
+    ["~"]= {{0,1,0},{1,0,1},{1,0,0},{0,0,0},{0,0,0}}, ["`"]= {{1,0,0},{0,1,0},{0,0,0},{0,0,0},{0,0,0}},
+    ["{"]= {{0,1,1},{0,1,0},{1,1,0},{0,1,0},{0,1,1}}, ["}"]= {{1,1,0},{0,1,0},{0,1,1},{0,1,0},{1,1,0}},
+    ["|"]= {{0,1,0},{0,1,0},{0,1,0},{0,1,0},{0,1,0}}
+}
+
+local FALLBACK_GLYPH = {{1,1,1},{1,0,1},{1,0,1},{1,0,1},{1,1,1}}
+
+local function getGlyph(char)
+    return font[char] or font[char:upper()] or font[char:lower()] or FALLBACK_GLYPH
+end
+
+-- 5. LIVE 3D PREVIEW
+local previewFolder = Instance.new("Folder")
+previewFolder.Name = "F3X_TextPreview_Client"
+previewFolder.Parent = Workspace
+
+local previewParts = {}
+
+local function clearPreview()
+    for _, p in ipairs(previewParts) do
+        if p then p:Destroy() end
+    end
+    table.clear(previewParts)
+end
+
+local function updatePreview()
+    clearPreview()
+
+    local text = TextBox.Text
+    local PixelSize = tonumber(SizeBox.Text) or 0.5
+    if PixelSize <= 0 then PixelSize = 0.5 end
+    if text == "" then return end
+
+    local LineGap = 1.2
+    local lineIndex = 0
+
+    for line in text:gmatch("[^\r\n]+") do
+        local xOffset = -((#line * 4 * PixelSize) / 2)
+        for i = 1, #line do
+            local charVal = line:sub(i, i)
+            local glyph = getGlyph(charVal)
+
+            for row = 1, 5 do
+                for col = 1, 3 do
+                    if glyph[row][col] == 1 then
+                        local p = Instance.new("Part")
+                        p.Size = Vector3.new(PixelSize, PixelSize, PixelSize)
+                        p.Material = Enum.Material.SmoothPlastic
+                        p.Color = colors[colorIndex].Color
+                        p.Transparency = 0.15
+                        p.Anchored = true
+                        p.CanCollide = false
+                        p.Parent = previewFolder
+
+                        local rx = xOffset + (col * PixelSize)
+                        local ry = - (row * PixelSize) - (lineIndex * LineGap * PixelSize * 5)
+                        p:SetAttribute("RelX", rx)
+                        p:SetAttribute("RelY", ry)
+
+                        table.insert(previewParts, p)
+                    end
+                end
+            end
+            xOffset = xOffset + (4 * PixelSize)
+        end
+        lineIndex = lineIndex + 1
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local baseCFrame = root.CFrame * CFrame.new(0, 2, -8)
+    for _, p in ipairs(previewParts) do
+        if p and p.Parent then
+            local rx = p:GetAttribute("RelX") or 0
+            local ry = p:GetAttribute("RelY") or 0
+            p.CFrame = baseCFrame * CFrame.new(rx, ry, 0)
+        end
+    end
+end)
+
+TextBox:GetPropertyChangedSignal("Text"):Connect(updatePreview)
+SizeBox:GetPropertyChangedSignal("Text"):Connect(updatePreview)
+
+ColorBtn.Activated:Connect(function()
+    colorIndex = (colorIndex % #colors) + 1
+    ColorBtn.BackgroundColor3 = colors[colorIndex].Color
+    ColorBtn.Text = "Color: " .. colors[colorIndex].Name
+    local luminance = (colors[colorIndex].Color.R * 0.299) + (colors[colorIndex].Color.G * 0.587) + (colors[colorIndex].Color.B * 0.114)
+    ColorBtn.TextColor3 = luminance > 0.5 and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+    updatePreview()
+end)
+
+-- 6. SERVER BUILDER ENGINE
+local function build3DText(text, PixelSize)
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    if PixelSize <= 0 then PixelSize = 0.5 end
+    local LineGap = 1.2
+    local origin = root.CFrame * CFrame.new(0, 2, -8)
+    local chosenColor = colors[colorIndex].Color
+
+    local spawnTargets = {}
+    local lineIndex = 0
+
+    for line in text:gmatch("[^\r\n]+") do
+        local xOffset = -((#line * 4 * PixelSize) / 2)
+        for i = 1, #line do
+            local charVal = line:sub(i, i)
+            local glyph = getGlyph(charVal)
+
+            for row = 1, 5 do
+                for col = 1, 3 do
+                    if glyph[row][col] == 1 then
+                        local pCFrame = origin * CFrame.new(
+                            xOffset + (col * PixelSize),
+                            - (row * PixelSize) - (lineIndex * LineGap * PixelSize * 5),
+                            0
+                        )
+                        table.insert(spawnTargets, pCFrame)
+                    end
+                end
+            end
+            xOffset = xOffset + (4 * PixelSize)
+        end
+        lineIndex = lineIndex + 1
+    end
+
+    if #spawnTargets == 0 then return end
+
+    task.spawn(function()
+        local targetModel = Workspace
+        local okSeed, seedPart = f3xCall("CreatePart", "Normal", spawnTargets[1], Workspace)
+
+        if okSeed and seedPart then
+            local gOk, newGroup = f3xCall("Group", {seedPart}, Workspace)
+            if gOk and typeof(newGroup) == "Instance" and newGroup:IsA("Model") then
+                targetModel = newGroup
+            elseif seedPart.Parent and seedPart.Parent:IsA("Model") and seedPart.Parent ~= Workspace then
+                targetModel = seedPart.Parent
+            end
+        end
+
+        local createdParts = {}
+        if seedPart then table.insert(createdParts, seedPart) end
+
+        local resizeBatch, anchorBatch, colorBatch, collideBatch = {}, {}, {}, {}
+        if seedPart then
+            table.insert(resizeBatch, {Part = seedPart, Size = Vector3.new(PixelSize, PixelSize, PixelSize), CFrame = spawnTargets[1]})
+            table.insert(anchorBatch, {Part = seedPart, Anchored = true})
+            table.insert(colorBatch, {Part = seedPart, Color = chosenColor})
+            table.insert(collideBatch, {Part = seedPart, CanCollide = false})
+        end
+
+        local completedThreads = 1
+        local totalParts = #spawnTargets
+
+        for idx = 2, totalParts do
+            local pCFrame = spawnTargets[idx]
+            task.spawn(function()
+                local ok, newPart = f3xCall("CreatePart", "Normal", pCFrame, targetModel)
+                if ok and newPart then
+                    createdParts[idx] = newPart
+                    table.insert(resizeBatch, {Part = newPart, Size = Vector3.new(PixelSize, PixelSize, PixelSize), CFrame = pCFrame})
+                    table.insert(anchorBatch, {Part = newPart, Anchored = true})
+                    table.insert(colorBatch, {Part = newPart, Color = chosenColor})
+                    table.insert(collideBatch, {Part = newPart, CanCollide = false})
+                end
+                completedThreads = completedThreads + 1
+            end)
+        end
+
+        local timeout = os.clock() + 1.5
+        while completedThreads < totalParts and os.clock() < timeout do
+            task.wait()
+        end
+
+        if #createdParts > 0 then
+            f3xCall("SyncResize", resizeBatch)
+            f3xCall("SyncAnchor", anchorBatch)
+            f3xCall("SyncColor", colorBatch)
+            f3xCall("SyncCollision", collideBatch)
+
+            local validParts = {}
+            for _, part in pairs(createdParts) do
+                table.insert(validParts, part)
+            end
+            f3xCall("Group", validParts, Workspace)
+        end
+
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum:UnequipTools() end
+        end
+    end)
+end
+
+-- 7. BUTTON-ONLY BUILD TRIGGER
+SubmitBtn.Activated:Connect(function()
+    local text = TextBox.Text
+    local scale = tonumber(SizeBox.Text) or 0.5
+    if text ~= "" then
+        build3DText(text, scale)
+        TextBox.Text = ""
+    end
+end)
