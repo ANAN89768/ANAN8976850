@@ -1,18 +1,13 @@
--- F3X COPY GAMES
-
-
+-- F3X GAMES COPIER
 local setclipboard = setclipboard or toclipboard or set_clipboard
-
-if not setclipboard then
-    error("Your executor does not support setclipboard()")
-end
+if not setclipboard then error("Your executor does not support setclipboard()") end
 
 local workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 
 local partsToExport = {}
 
--- 1. Scan Workspace (excluding terrain, characters, and baseplate)
+-- 1. Scan Workspace (excluding terrain, player characters, and baseplate)
 for _, part in ipairs(workspace:GetDescendants()) do
     if part:IsA("BasePart") and not part:IsA("Terrain") then
         local nameLower = part.Name:lower()
@@ -24,7 +19,6 @@ for _, part in ipairs(workspace:GetDescendants()) do
                     break
                 end
             end
-            
             if not isCharacter then
                 table.insert(partsToExport, part)
             end
@@ -40,7 +34,6 @@ end
 local function getInfo(part)
     local shape = "Normal"
     local meshInfo = nil
-
     if part:IsA("MeshPart") then
         meshInfo = {
             MeshType = "FileMesh",
@@ -61,22 +54,26 @@ local function getInfo(part)
             }
         end
     end
-
     if not meshInfo or meshInfo.MeshId == "" then
-        if part:IsA("WedgePart") or part.ClassName == "WedgePart" then shape = "Wedge"
-        elseif part:IsA("CornerWedgePart") or part.ClassName == "CornerWedgePart" then shape = "Corner"
-        elseif part:IsA("TrussPart") or part.ClassName == "TrussPart" then shape = "Truss"
+        if part:IsA("WedgePart") or part.ClassName == "WedgePart" then
+            shape = "Wedge"
+        elseif part:IsA("CornerWedgePart") or part.ClassName == "CornerWedgePart" then
+            shape = "Corner"
+        elseif part:IsA("TrussPart") or part.ClassName == "TrussPart" then
+            shape = "Truss"
         elseif part:IsA("Part") then
             local ok, pShape = pcall(function() return part.Shape end)
             if ok and pShape then
-                if pShape == Enum.PartType.Ball then shape = "Ball"
-                elseif pShape == Enum.PartType.Cylinder then shape = "Cylinder"
-                elseif pShape == Enum.PartType.Wedge then shape = "Wedge"
+                if pShape == Enum.PartType.Ball then
+                    shape = "Ball"
+                elseif pShape == Enum.PartType.Cylinder then
+                    shape = "Cylinder"
+                elseif pShape == Enum.PartType.Wedge then
+                    shape = "Wedge"
                 end
             end
         end
     end
-
     return shape, meshInfo
 end
 
@@ -92,11 +89,9 @@ local function getTextures(part)
                 g = math.round(child.Color3.G * 255)
                 b = math.round(child.Color3.B * 255)
             end)
-
             table.insert(list, string.format(
                 '{Type = "%s", Face = Enum.NormalId.%s, Texture = "%s", Transparency = %s, Color = Color3.fromRGB(%d, %d, %d), StudsPerTileU = %s, StudsPerTileV = %s, OffsetStudsU = %s, OffsetStudsV = %s}',
-                child.ClassName, child.Face.Name, child.Texture,
-                tostring(round(child.Transparency)), r, g, b,
+                child.ClassName, child.Face.Name, child.Texture, tostring(round(child.Transparency)), r, g, b,
                 isTex and tostring(round(child.StudsPerTileU)) or "1",
                 isTex and tostring(round(child.StudsPerTileV)) or "1",
                 isTex and tostring(round(child.OffsetStudsU)) or "0",
@@ -107,37 +102,21 @@ local function getTextures(part)
     return "{" .. table.concat(list, ", ") .. "}"
 end
 
--- Extract Surface Types
-local function getSurfaces(part)
-    return string.format(
-        '{Top = Enum.SurfaceType.%s, Bottom = Enum.SurfaceType.%s, Left = Enum.SurfaceType.%s, Right = Enum.SurfaceType.%s, Front = Enum.SurfaceType.%s, Back = Enum.SurfaceType.%s}',
-        part.TopSurface.Name, part.BottomSurface.Name, part.LeftSurface.Name,
-        part.RightSurface.Name, part.FrontSurface.Name, part.BackSurface.Name
-    )
-end
-
 local serializedLines = {}
-
 for _, part in ipairs(partsToExport) do
     local shape, meshInfo = getInfo(part)
-    
     local cf = part.CFrame
     local comps = {cf:GetComponents()}
     for i, v in ipairs(comps) do comps[i] = round(v) end
     local cfStr = string.format("CFrame.new(%s)", table.concat(comps, ", "))
-    
     local sizeStr = string.format("Vector3.new(%s, %s, %s)", round(part.Size.X), round(part.Size.Y), round(part.Size.Z))
-    
     local color = part.Color
     local colorStr = string.format("Color3.fromRGB(%d, %d, %d)", math.round(color.R * 255), math.round(color.G * 255), math.round(color.B * 255))
     local matStr = "Enum.Material." .. part.Material.Name
-    
     local transNum = round(math.clamp(part.Transparency, 0, 1))
     local anch = part.Anchored and "true" or "false"
     local canCollide = part.CanCollide and "true" or "false"
-    
     local texStr = getTextures(part)
-    local surfStr = getSurfaces(part)
     
     local meshStr = "nil"
     if meshInfo then
@@ -148,16 +127,14 @@ for _, part in ipairs(partsToExport) do
     end
     
     local line = string.format(
-        '    {"%s", %s, %s, %s, %s, %s, %s, %s, %s, %s, %s}',
-        shape, cfStr, sizeStr, colorStr, matStr, tostring(transNum), anch, canCollide, texStr, meshStr, surfStr
+        ' {"%s", %s, %s, %s, %s, %s, %s, %s, %s, %s}',
+        shape, cfStr, sizeStr, colorStr, matStr, tostring(transNum), anch, canCollide, texStr, meshStr
     )
     table.insert(serializedLines, line)
 end
 
--- 2. Construct Ultra-Fast Parallel Importer Script
-local generatedScript = [[-- execute in F3X game
-
-
+-- 2. Construct Surface-Ignored Chunked Importer
+local generatedScript = [[-- Execute in target game with F3X Building Tool
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
@@ -165,9 +142,7 @@ local function setCharacterAnchored(state)
     local char = LocalPlayer.Character
     if char then
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.Anchored = state
-            end
+            if part:IsA("BasePart") then part.Anchored = state end
         end
     end
 end
@@ -175,7 +150,6 @@ end
 local function getF3X()
     local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local backpack = LocalPlayer:WaitForChild("Backpack")
-
     for _, item in ipairs(char:GetChildren()) do
         if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
     end
@@ -195,46 +169,55 @@ end
 
 local mapData = {
 ]] .. table.concat(serializedLines, ",\n") .. [[
-
 }
+
+local function sendInChunks(remoteMethod, dataArray, chunkSize)
+    chunkSize = chunkSize or 150
+    for i = 1, #dataArray, chunkSize do
+        local chunk = {}
+        for j = i, math.min(i + chunkSize - 1, #dataArray) do
+            table.insert(chunk, dataArray[j])
+        end
+        pcall(function() serverEndpoint:InvokeServer(remoteMethod, chunk) end)
+        task.wait(0.03)
+    end
+end
 
 task.spawn(function()
     setCharacterAnchored(true)
-
     local totalParts = #mapData
     local createdParts = table.create(totalParts)
     local completedWorkers = 0
-    local WORKERS = 15 -- 15 concurrent threads bypassing latency bottlenecks
+    local WORKERS = 12
 
-    -- Parallel Worker Spawning
+    print("Importing " .. totalParts .. " parts (surfaces ignored)...")
+
     for workerId = 1, WORKERS do
         task.spawn(function()
+            local processedCount = 0
             for i = workerId, totalParts, WORKERS do
                 local data = mapData[i]
                 local shape, cf = data[1], data[2]
-                local ok, part = pcall(function()
-                    return serverEndpoint:InvokeServer("CreatePart", shape, cf, workspace)
-                end)
+                local ok, part = pcall(function() return serverEndpoint:InvokeServer("CreatePart", shape, cf, workspace) end)
                 if ok and part then
                     createdParts[i] = {Part = part, Data = data}
                 end
+                processedCount = processedCount + 1
+                if processedCount % 25 == 0 then task.wait() end
             end
             completedWorkers = completedWorkers + 1
         end)
     end
 
-    -- Wait for parallel worker pool execution
     repeat task.wait() until completedWorkers >= WORKERS
 
-    -- Prepare Single Instant Bulk Sync Tables
     local resizeBatch, colorBatch, materialBatch, transBatch = {}, {}, {}, {}
-    local anchorBatch, collisionBatch, surfaceBatch = {}, {}, {}
+    local anchorBatch, collisionBatch = {}, {}
     local meshCreateList, meshSyncBatch, textureSyncBatch = {}, {}, {}
 
     for _, item in pairs(createdParts) do
         local p, d = item.Part, item.Data
-        local shape, cf, size, color, mat, trans, anch, canCollide, textures, meshData, surf = d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]
-
+        local shape, cf, size, color, mat, trans, anch, canCollide, textures, meshData = d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10]
         local numTrans = tonumber(trans) or 0
 
         table.insert(resizeBatch, {Part = p, Size = size, CFrame = cf})
@@ -243,15 +226,6 @@ task.spawn(function()
         table.insert(transBatch, {Part = p, Transparency = numTrans})
         table.insert(anchorBatch, {Part = p, Anchored = anch})
         table.insert(collisionBatch, {Part = p, CanCollide = canCollide})
-
-        if surf then
-            table.insert(surfaceBatch, {
-                Part = p,
-                TopType = surf.Top, BottomType = surf.Bottom,
-                LeftType = surf.Left, RightType = surf.Right,
-                FrontType = surf.Front, BackType = surf.Back
-            })
-        end
 
         if meshData and meshData.MeshId and meshData.MeshId ~= "" then
             table.insert(meshCreateList, p)
@@ -286,28 +260,26 @@ task.spawn(function()
         end
     end
 
-    -- Fire bulk syncs in single burst
-    pcall(function() serverEndpoint:InvokeServer("SyncResize", resizeBatch) end)
-    pcall(function() serverEndpoint:InvokeServer("SyncColor", colorBatch) end)
-    pcall(function() serverEndpoint:InvokeServer("SyncMaterial", materialBatch) end)
-    pcall(function() serverEndpoint:InvokeServer("SyncTransparency", transBatch) end)
-    pcall(function() serverEndpoint:InvokeServer("SyncAnchor", anchorBatch) end)
-    pcall(function() serverEndpoint:InvokeServer("SyncCollision", collisionBatch) end)
-    pcall(function() serverEndpoint:InvokeServer("SyncSurface", surfaceBatch) end)
+    sendInChunks("SyncResize", resizeBatch, 150)
+    sendInChunks("SyncColor", colorBatch, 150)
+    sendInChunks("SyncMaterial", materialBatch, 150)
+    sendInChunks("SyncTransparency", transBatch, 150)
+    sendInChunks("SyncAnchor", anchorBatch, 150)
+    sendInChunks("SyncCollision", collisionBatch, 150)
 
     if #meshCreateList > 0 then
-        pcall(function() serverEndpoint:InvokeServer("CreateMesh", meshCreateList) end)
-        pcall(function() serverEndpoint:InvokeServer("SyncMesh", meshSyncBatch) end)
+        sendInChunks("CreateMesh", meshCreateList, 150)
+        sendInChunks("SyncMesh", meshSyncBatch, 150)
     end
 
     if #textureSyncBatch > 0 then
-        pcall(function() serverEndpoint:InvokeServer("SyncTexture", textureSyncBatch) end)
+        sendInChunks("SyncTexture", textureSyncBatch, 150)
     end
 
     setCharacterAnchored(false)
-    print("Ultra-fast parallel build finished!")
+    print("Import Complete! Surfaces ignored. Total parts: " .. #createdParts)
 end)
 ]]
 
 setclipboard(generatedScript)
-print("Scanned " .. #partsToExport .. " parts! Ultra-fast multi-threaded importer copied to clipboard.")
+print("Scanned " .. #partsToExport .. " parts without surface data! Importer copied to clipboard.")
