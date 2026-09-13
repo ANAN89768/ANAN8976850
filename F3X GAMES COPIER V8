@@ -1,4 +1,4 @@
--- F3X GAMES COPIER
+-- F3X GAME COPIER V8
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("Your executor does not support setclipboard()") end
 
@@ -7,7 +7,7 @@ local Players = game:GetService("Players")
 
 local partsToExport = {}
 
--- 1. Scan Workspace (excluding terrain, player characters, and baseplate)
+-- Scan Workspace (excluding terrain, player characters, and baseplate)
 for _, part in ipairs(workspace:GetDescendants()) do
     if part:IsA("BasePart") and not part:IsA("Terrain") then
         local nameLower = part.Name:lower()
@@ -34,26 +34,34 @@ end
 local function getInfo(part)
     local shape = "Normal"
     local meshInfo = nil
-    if part:IsA("MeshPart") then
-        meshInfo = {
-            MeshType = "FileMesh",
-            MeshId = part.MeshId,
-            TextureId = part.TextureID,
-            Scale = "Vector3.new(1, 1, 1)",
-            Offset = "Vector3.new(0, 0, 0)"
-        }
+    
+    if part:IsA("MeshPart") or part.ClassName == "MeshPart" then
+        local meshId = tostring(part.MeshId or "")
+        if meshId ~= "" then
+            meshInfo = {
+                MeshType = "FileMesh",
+                MeshId = meshId,
+                TextureId = tostring(part.TextureID or ""),
+                Scale = "Vector3.new(1, 1, 1)",
+                Offset = "Vector3.new(0, 0, 0)"
+            }
+        end
     else
         local sm = part:FindFirstChildOfClass("SpecialMesh")
         if sm then
-            meshInfo = {
-                MeshType = sm.MeshType.Name,
-                MeshId = sm.MeshId,
-                TextureId = sm.TextureId,
-                Scale = string.format("Vector3.new(%s, %s, %s)", round(sm.Scale.X), round(sm.Scale.Y), round(sm.Scale.Z)),
-                Offset = string.format("Vector3.new(%s, %s, %s)", round(sm.Offset.X), round(sm.Offset.Y), round(sm.Offset.Z))
-            }
+            local meshId = tostring(sm.MeshId or "")
+            if meshId ~= "" then
+                meshInfo = {
+                    MeshType = sm.MeshType.Name or "FileMesh",
+                    MeshId = meshId,
+                    TextureId = tostring(sm.TextureId or ""),
+                    Scale = string.format("Vector3.new(%s, %s, %s)", round(sm.Scale.X), round(sm.Scale.Y), round(sm.Scale.Z)),
+                    Offset = string.format("Vector3.new(%s, %s, %s)", round(sm.Offset.X), round(sm.Offset.Y), round(sm.Offset.Z))
+                }
+            end
         end
     end
+    
     if not meshInfo or meshInfo.MeshId == "" then
         if part:IsA("WedgePart") or part.ClassName == "WedgePart" then
             shape = "Wedge"
@@ -133,8 +141,8 @@ for _, part in ipairs(partsToExport) do
     table.insert(serializedLines, line)
 end
 
--- 2. Construct Surface-Ignored Chunked Importer
-local generatedScript = [[-- Execute in target game with F3X Building Tool
+-- Importer Generator
+local generatedScript = [[-- F3X GAME COPIER
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
@@ -190,8 +198,6 @@ task.spawn(function()
     local completedWorkers = 0
     local WORKERS = 12
 
-    print("Importing " .. totalParts .. " parts (surfaces ignored)...")
-
     for workerId = 1, WORKERS do
         task.spawn(function()
             local processedCount = 0
@@ -213,7 +219,7 @@ task.spawn(function()
 
     local resizeBatch, colorBatch, materialBatch, transBatch = {}, {}, {}, {}
     local anchorBatch, collisionBatch = {}, {}
-    local meshCreateList, meshSyncBatch, textureSyncBatch = {}, {}, {}
+    local meshCreateBatch, meshSyncBatch, textureSyncBatch = {}, {}, {}
 
     for _, item in pairs(createdParts) do
         local p, d = item.Part, item.Data
@@ -228,7 +234,7 @@ task.spawn(function()
         table.insert(collisionBatch, {Part = p, CanCollide = canCollide})
 
         if meshData and meshData.MeshId and meshData.MeshId ~= "" then
-            table.insert(meshCreateList, p)
+            table.insert(meshCreateBatch, {Part = p})
             local mType = Enum.MeshType[meshData.MeshType] or Enum.MeshType.FileMesh
             table.insert(meshSyncBatch, {
                 Part = p,
@@ -267,8 +273,9 @@ task.spawn(function()
     sendInChunks("SyncAnchor", anchorBatch, 150)
     sendInChunks("SyncCollision", collisionBatch, 150)
 
-    if #meshCreateList > 0 then
-        sendInChunks("CreateMesh", meshCreateList, 150)
+    if #meshCreateBatch > 0 then
+        sendInChunks("CreateMeshes", meshCreateBatch, 150)
+        task.wait(0.05)
         sendInChunks("SyncMesh", meshSyncBatch, 150)
     end
 
@@ -277,9 +284,7 @@ task.spawn(function()
     end
 
     setCharacterAnchored(false)
-    print("Import Complete! Surfaces ignored. Total parts: " .. #createdParts)
 end)
 ]]
 
 setclipboard(generatedScript)
-print("Scanned " .. #partsToExport .. " parts without surface data! Importer copied to clipboard.")
