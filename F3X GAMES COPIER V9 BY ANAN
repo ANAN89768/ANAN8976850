@@ -1,4 +1,4 @@
--- F3X GAME COPIER V8
+-- F3X GAME COPIER V9 BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("Your executor does not support setclipboard()") end
 
@@ -7,7 +7,6 @@ local Players = game:GetService("Players")
 
 local partsToExport = {}
 
--- Scan Workspace (excluding terrain, player characters, and baseplate)
 for _, part in ipairs(workspace:GetDescendants()) do
     if part:IsA("BasePart") and not part:IsA("Terrain") then
         local nameLower = part.Name:lower()
@@ -30,7 +29,31 @@ local function round(num)
     return math.floor(num * 10000 + 0.5) / 10000
 end
 
--- Extract Mesh details
+local function getSurfaces(part)
+    local sTypes = {}
+    local custom = false
+    local faces = {"Top", "Bottom", "Front", "Back", "Left", "Right"}
+    
+    for _, face in ipairs(faces) do
+        local ok, surf = pcall(function() return part[face .. "Surface"] end)
+        if ok and surf then
+            sTypes[face] = surf.Name
+            if surf.Name ~= "Smooth" and surf.Name ~= "SmoothNoOutlines" then
+                custom = true
+            end
+        else
+            sTypes[face] = "Smooth"
+        end
+    end
+    
+    if not custom then return "nil" end
+    
+    return string.format(
+        '{Top = Enum.SurfaceType.%s, Bottom = Enum.SurfaceType.%s, Front = Enum.SurfaceType.%s, Back = Enum.SurfaceType.%s, Left = Enum.SurfaceType.%s, Right = Enum.SurfaceType.%s}',
+        sTypes.Top, sTypes.Bottom, sTypes.Front, sTypes.Back, sTypes.Left, sTypes.Right
+    )
+end
+
 local function getInfo(part)
     local shape = "Normal"
     local meshInfo = nil
@@ -85,7 +108,6 @@ local function getInfo(part)
     return shape, meshInfo
 end
 
--- Extract Decals and Textures
 local function getTextures(part)
     local list = {}
     for _, child in ipairs(part:GetChildren()) do
@@ -125,6 +147,7 @@ for _, part in ipairs(partsToExport) do
     local anch = part.Anchored and "true" or "false"
     local canCollide = part.CanCollide and "true" or "false"
     local texStr = getTextures(part)
+    local surfStr = getSurfaces(part)
     
     local meshStr = "nil"
     if meshInfo then
@@ -135,13 +158,12 @@ for _, part in ipairs(partsToExport) do
     end
     
     local line = string.format(
-        ' {"%s", %s, %s, %s, %s, %s, %s, %s, %s, %s}',
-        shape, cfStr, sizeStr, colorStr, matStr, tostring(transNum), anch, canCollide, texStr, meshStr
+        ' {"%s", %s, %s, %s, %s, %s, %s, %s, %s, %s, %s}',
+        shape, cfStr, sizeStr, colorStr, matStr, tostring(transNum), anch, canCollide, texStr, meshStr, surfStr
     )
     table.insert(serializedLines, line)
 end
 
--- Importer Generator
 local generatedScript = [[-- F3X GAME COPIER
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -220,10 +242,11 @@ task.spawn(function()
     local resizeBatch, colorBatch, materialBatch, transBatch = {}, {}, {}, {}
     local anchorBatch, collisionBatch = {}, {}
     local meshCreateBatch, meshSyncBatch, textureSyncBatch = {}, {}, {}
+    local surfaceBatch = {}
 
     for _, item in pairs(createdParts) do
         local p, d = item.Part, item.Data
-        local shape, cf, size, color, mat, trans, anch, canCollide, textures, meshData = d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10]
+        local shape, cf, size, color, mat, trans, anch, canCollide, textures, meshData, surfData = d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]
         local numTrans = tonumber(trans) or 0
 
         table.insert(resizeBatch, {Part = p, Size = size, CFrame = cf})
@@ -232,6 +255,13 @@ task.spawn(function()
         table.insert(transBatch, {Part = p, Transparency = numTrans})
         table.insert(anchorBatch, {Part = p, Anchored = anch})
         table.insert(collisionBatch, {Part = p, CanCollide = canCollide})
+
+        if surfData then
+            table.insert(surfaceBatch, {
+                Part = p,
+                Surfaces = surfData
+            })
+        end
 
         if meshData and meshData.MeshId and meshData.MeshId ~= "" then
             table.insert(meshCreateBatch, {Part = p})
@@ -272,6 +302,10 @@ task.spawn(function()
     sendInChunks("SyncTransparency", transBatch, 150)
     sendInChunks("SyncAnchor", anchorBatch, 150)
     sendInChunks("SyncCollision", collisionBatch, 150)
+
+    if #surfaceBatch > 0 then
+        sendInChunks("SyncSurface", surfaceBatch, 150)
+    end
 
     if #meshCreateBatch > 0 then
         sendInChunks("CreateMeshes", meshCreateBatch, 150)
