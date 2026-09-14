@@ -1,4 +1,4 @@
--- F3X GAMES COPIER V10 BY ANAN
+-- (F3X) GAMES COPIER V13 BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("Your executor does not support setclipboard()") end
 
@@ -82,7 +82,7 @@ local function getInfo(part)
         end
     end
 
-    -- Check for SpecialMesh child (overrides or modifies Mesh properties)
+    -- Check for SpecialMesh child
     local sm = part:FindFirstChildOfClass("SpecialMesh")
     if sm then
         local meshId = tostring(sm.MeshId or "")
@@ -216,14 +216,18 @@ if serverEndpoint:IsA("Folder") or serverEndpoint:IsA("ModuleScript") then
     serverEndpoint = serverEndpoint:FindFirstChild("ServerEndpoint", true) or serverEndpoint
 end
 
--- Removes existing baseplate in target game before building
+-- Server-side removal of baseplate using F3X Remove API
+local baseplatesToRemove = {}
 for _, p in ipairs(workspace:GetDescendants()) do
     if p:IsA("BasePart") and p.Name:lower() == "baseplate" then
-        pcall(function()
-            serverEndpoint:InvokeServer("Undo", {p})
-            p:Destroy()
-        end)
+        table.insert(baseplatesToRemove, p)
     end
+end
+
+if #baseplatesToRemove > 0 then
+    pcall(function()
+        serverEndpoint:InvokeServer("Remove", baseplatesToRemove)
+    end)
 end
 
 local mapData = {
