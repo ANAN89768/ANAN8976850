@@ -1,26 +1,34 @@
--- F3X GAME COPIER V9 BY ANAN
+-- F3X GAMES COPIER V10 BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("Your executor does not support setclipboard()") end
 
 local workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+-- Fetch game name for header comment
+local gameName = "Scanned"
+pcall(function()
+    local info = MarketplaceService:GetProductInfo(game.PlaceId)
+    if info and info.Name then
+        gameName = info.Name
+    end
+end)
 
 local partsToExport = {}
 
+-- Scan Workspace (excluding terrain and player characters)
 for _, part in ipairs(workspace:GetDescendants()) do
     if part:IsA("BasePart") and not part:IsA("Terrain") then
-        local nameLower = part.Name:lower()
-        if nameLower ~= "baseplate" then
-            local isCharacter = false
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player.Character and part:IsDescendantOf(player.Character) then
-                    isCharacter = true
-                    break
-                end
+        local isCharacter = false
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Character and part:IsDescendantOf(player.Character) then
+                isCharacter = true
+                break
             end
-            if not isCharacter then
-                table.insert(partsToExport, part)
-            end
+        end
+        if not isCharacter then
+            table.insert(partsToExport, part)
         end
     end
 end
@@ -54,35 +62,41 @@ local function getSurfaces(part)
     )
 end
 
+-- Advanced Mesh Scale, Offset & Type Detector
 local function getInfo(part)
     local shape = "Normal"
     local meshInfo = nil
     
+    -- Check for MeshPart
     if part:IsA("MeshPart") or part.ClassName == "MeshPart" then
         local meshId = tostring(part.MeshId or "")
+        local textureId = tostring(part.TextureID or "")
         if meshId ~= "" then
             meshInfo = {
                 MeshType = "FileMesh",
                 MeshId = meshId,
-                TextureId = tostring(part.TextureID or ""),
+                TextureId = textureId,
                 Scale = "Vector3.new(1, 1, 1)",
                 Offset = "Vector3.new(0, 0, 0)"
             }
         end
-    else
-        local sm = part:FindFirstChildOfClass("SpecialMesh")
-        if sm then
-            local meshId = tostring(sm.MeshId or "")
-            if meshId ~= "" then
-                meshInfo = {
-                    MeshType = sm.MeshType.Name or "FileMesh",
-                    MeshId = meshId,
-                    TextureId = tostring(sm.TextureId or ""),
-                    Scale = string.format("Vector3.new(%s, %s, %s)", round(sm.Scale.X), round(sm.Scale.Y), round(sm.Scale.Z)),
-                    Offset = string.format("Vector3.new(%s, %s, %s)", round(sm.Offset.X), round(sm.Offset.Y), round(sm.Offset.Z))
-                }
-            end
-        end
+    end
+
+    -- Check for SpecialMesh child (overrides or modifies Mesh properties)
+    local sm = part:FindFirstChildOfClass("SpecialMesh")
+    if sm then
+        local meshId = tostring(sm.MeshId or "")
+        local textureId = tostring(sm.TextureId or "")
+        local mScale = sm.Scale or Vector3.new(1, 1, 1)
+        local mOffset = sm.Offset or Vector3.new(0, 0, 0)
+        
+        meshInfo = {
+            MeshType = sm.MeshType.Name or "FileMesh",
+            MeshId = meshId,
+            TextureId = textureId,
+            Scale = string.format("Vector3.new(%s, %s, %s)", round(mScale.X), round(mScale.Y), round(mScale.Z)),
+            Offset = string.format("Vector3.new(%s, %s, %s)", round(mOffset.X), round(mOffset.Y), round(mOffset.Z))
+        }
     end
     
     if not meshInfo or meshInfo.MeshId == "" then
@@ -108,25 +122,29 @@ local function getInfo(part)
     return shape, meshInfo
 end
 
+-- Image & Texture Detector
 local function getTextures(part)
     local list = {}
     for _, child in ipairs(part:GetChildren()) do
         if child:IsA("Decal") or child:IsA("Texture") then
             local isTex = child:IsA("Texture")
-            local r, g, b = 255, 255, 255
-            pcall(function()
-                r = math.round(child.Color3.R * 255)
-                g = math.round(child.Color3.G * 255)
-                b = math.round(child.Color3.B * 255)
-            end)
-            table.insert(list, string.format(
-                '{Type = "%s", Face = Enum.NormalId.%s, Texture = "%s", Transparency = %s, Color = Color3.fromRGB(%d, %d, %d), StudsPerTileU = %s, StudsPerTileV = %s, OffsetStudsU = %s, OffsetStudsV = %s}',
-                child.ClassName, child.Face.Name, child.Texture, tostring(round(child.Transparency)), r, g, b,
-                isTex and tostring(round(child.StudsPerTileU)) or "1",
-                isTex and tostring(round(child.StudsPerTileV)) or "1",
-                isTex and tostring(round(child.OffsetStudsU)) or "0",
-                isTex and tostring(round(child.OffsetStudsV)) or "0"
-            ))
+            local texImg = tostring(child.Texture or "")
+            if texImg ~= "" then
+                local r, g, b = 255, 255, 255
+                pcall(function()
+                    r = math.round(child.Color3.R * 255)
+                    g = math.round(child.Color3.G * 255)
+                    b = math.round(child.Color3.B * 255)
+                end)
+                table.insert(list, string.format(
+                    '{Type = "%s", Face = Enum.NormalId.%s, Texture = "%s", Transparency = %s, Color = Color3.fromRGB(%d, %d, %d), StudsPerTileU = %s, StudsPerTileV = %s, OffsetStudsU = %s, OffsetStudsV = %s}',
+                    child.ClassName, child.Face.Name, texImg, tostring(round(child.Transparency)), r, g, b,
+                    isTex and tostring(round(child.StudsPerTileU)) or "1",
+                    isTex and tostring(round(child.StudsPerTileV)) or "1",
+                    isTex and tostring(round(child.OffsetStudsU)) or "0",
+                    isTex and tostring(round(child.OffsetStudsV)) or "0"
+                ))
+            end
         end
     end
     return "{" .. table.concat(list, ", ") .. "}"
@@ -164,7 +182,8 @@ for _, part in ipairs(partsToExport) do
     table.insert(serializedLines, line)
 end
 
-local generatedScript = [[-- F3X GAME COPIER
+-- Importer Generator
+local generatedScript = string.format("-- %s Map\n", gameName) .. [[
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
@@ -195,6 +214,16 @@ if not tool then error("F3X / Building Tools not found in character or backpack!
 local serverEndpoint = tool:FindFirstChild("ServerEndpoint", true) or tool:FindFirstChild("SyncAPI", true)
 if serverEndpoint:IsA("Folder") or serverEndpoint:IsA("ModuleScript") then
     serverEndpoint = serverEndpoint:FindFirstChild("ServerEndpoint", true) or serverEndpoint
+end
+
+-- Removes existing baseplate in target game before building
+for _, p in ipairs(workspace:GetDescendants()) do
+    if p:IsA("BasePart") and p.Name:lower() == "baseplate" then
+        pcall(function()
+            serverEndpoint:InvokeServer("Undo", {p})
+            p:Destroy()
+        end)
+    end
 end
 
 local mapData = {
