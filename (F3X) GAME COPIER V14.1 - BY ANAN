@@ -1,0 +1,428 @@
+-- (F3X) GAME COPIER V14.1 - BY ANAN
+local setclipboard = setclipboard or toclipboard or set_clipboard
+if not setclipboard then error("[F3X Copier] Your executor does not support setclipboard()") end
+
+local workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+-- String Escaping Helper for Safe Code Generation
+local function escapeString(str)
+    if type(str) ~= "string" then return '""' end
+    return string.format("%q", str)
+end
+
+-- Number Rounding Helper
+local function round(num)
+    if type(num) ~= "number" then return 0 end
+    return math.floor(num * 10000 + 0.5) / 10000
+end
+
+-- Vector3 Serialization Helper
+local function serializeVector3(vec)
+    if typeof(vec) ~= "Vector3" then return "Vector3.new(0, 0, 0)" end
+    return string.format("Vector3.new(%s, %s, %s)", round(vec.X), round(vec.Y), round(vec.Z))
+end
+
+-- CFrame Serialization Helper
+local function serializeCFrame(cf)
+    local comps = {cf:GetComponents()}
+    for i, v in ipairs(comps) do comps[i] = round(v) end
+    return string.format("CFrame.new(%s)", table.concat(comps, ", "))
+end
+
+-- Color3 Serialization Helper
+local function serializeColor3(col)
+    return string.format("Color3.fromRGB(%d, %d, %d)", math.round(col.R * 255), math.round(col.G * 255), math.round(col.B * 255))
+end
+
+-- Fetch game name for header comment safely
+local gameName = "Scanned Game"
+pcall(function()
+    local info = MarketplaceService:GetProductInfo(game.PlaceId)
+    if info and info.Name then
+        gameName = tostring(info.Name):gsub("[\r\n]", " ")
+    end
+end)
+
+local partsToExport = {}
+
+-- Scan Workspace (excluding terrain and player characters)
+for _, part in ipairs(workspace:GetDescendants()) do
+    if part:IsA("BasePart") and not part:IsA("Terrain") then
+        local isCharacter = false
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Character and part:IsDescendantOf(player.Character) then
+                isCharacter = true
+                break
+            end
+        end
+        if not isCharacter then
+            table.insert(partsToExport, part)
+        end
+    end
+end
+
+-- Surface Serialization
+local function getSurfaces(part)
+    local faces = {"Top", "Bottom", "Front", "Back", "Left", "Right"}
+    local sTypes = {}
+    local hasCustom = false
+    
+    for _, face in ipairs(faces) do
+        local ok, surf = pcall(function() return part[face .. "Surface"] end)
+        if ok and surf and typeof(surf) == "EnumItem" then
+            local name = surf.Name
+            if pcall(function() return Enum.SurfaceType[name] end) then
+                sTypes[face] = "Enum.SurfaceType." .. name
+                if name ~= "Smooth" and name ~= "SmoothNoOutlines" then
+                    hasCustom = true
+                end
+            else
+                sTypes[face] = "Enum.SurfaceType.Smooth"
+            end
+        else
+            sTypes[face] = "Enum.SurfaceType.Smooth"
+        end
+    end
+    
+    if not hasCustom then return "nil" end
+    
+    return string.format(
+        "{Top = %s, Bottom = %s, Front = %s, Back = %s, Left = %s, Right = %s}",
+        sTypes.Top, sTypes.Bottom, sTypes.Front, sTypes.Back, sTypes.Left, sTypes.Right
+    )
+end
+
+-- Texture / Decal Serialization
+local function getTextures(part)
+    local list = {}
+    for _, child in ipairs(part:GetChildren()) do
+        if child:IsA("Decal") or child:IsA("Texture") then
+            local isTex = child:IsA("Texture")
+            local texImg = tostring(child.Texture or "")
+            if texImg ~= "" then
+                local r, g, b = 255, 255, 255
+                pcall(function()
+                    local col = child.Color3
+                    r = math.round(col.R * 255)
+                    g = math.round(col.G * 255)
+                    b = math.round(col.B * 255)
+                end)
+                
+                local faceName = child.Face and child.Face.Name or "Front"
+                local faceEnumStr = "Enum.NormalId." .. (Enum.NormalId[faceName] and faceName or "Front")
+                local trans = round(child.Transparency or 0)
+                
+                local uStuds = isTex and round(child.StudsPerTileU or 1) or 1
+                local vStuds = isTex and round(child.StudsPerTileV or 1) or 1
+                local uOffset = isTex and round(child.OffsetStudsU or 0) or 0
+                local vOffset = isTex and round(child.OffsetStudsV or 0) or 0
+                
+                local entry = string.format(
+                    '{Type = %s, Face = %s, Texture = %s, Transparency = %s, Color = Color3.fromRGB(%d, %d, %d), StudsPerTileU = %s, StudsPerTileV = %s, OffsetStudsU = %s, OffsetStudsV = %s}',
+                    escapeString(child.ClassName),
+                    faceEnumStr,
+                    escapeString(texImg),
+                    tostring(trans),
+                    r, g, b,
+                    tostring(uStuds),
+                    tostring(vStuds),
+                    tostring(uOffset),
+                    tostring(vOffset)
+                )
+                table.insert(list, entry)
+            end
+        end
+    end
+    if #list == 0 then return "nil" end
+    return "{" .. table.concat(list, ", ") .. "}"
+end
+
+-- Mesh & Shape Detector
+local function getInfo(part)
+    local shape = "Normal"
+    local meshStr = "nil"
+    local meshInfo = nil
+    
+    if part:IsA("MeshPart") or part.ClassName == "MeshPart" then
+        local meshId = tostring(part.MeshId or "")
+        local textureId = tostring(part.TextureID or "")
+        if meshId ~= "" then
+            meshInfo = {
+                MeshType = "FileMesh",
+                MeshId = meshId,
+                TextureId = textureId,
+                Scale = Vector3.new(1, 1, 1),
+                Offset = Vector3.new(0, 0, 0)
+            }
+        end
+    end
+
+    local sm = part:FindFirstChildOfClass("SpecialMesh")
+    if sm then
+        local meshId = tostring(sm.MeshId or "")
+        local textureId = tostring(sm.TextureId or "")
+        local mScale = sm.Scale or Vector3.new(1, 1, 1)
+        local mOffset = sm.Offset or Vector3.new(0, 0, 0)
+        local mTypeName = "FileMesh"
+        pcall(function() mTypeName = sm.MeshType.Name end)
+        
+        meshInfo = {
+            MeshType = mTypeName,
+            MeshId = meshId,
+            TextureId = textureId,
+            Scale = mScale,
+            Offset = mOffset
+        }
+    end
+    
+    if meshInfo then
+        local mTypeEnum = "Enum.MeshType." .. (Enum.MeshType[meshInfo.MeshType] and meshInfo.MeshType or "FileMesh")
+        meshStr = string.format(
+            '{MeshType = %s, MeshId = %s, TextureId = %s, Scale = %s, Offset = %s}',
+            mTypeEnum,
+            escapeString(meshInfo.MeshId),
+            escapeString(meshInfo.TextureId),
+            serializeVector3(meshInfo.Scale),
+            serializeVector3(meshInfo.Offset)
+        )
+    else
+        if part:IsA("WedgePart") or part.ClassName == "WedgePart" then
+            shape = "Wedge"
+        elseif part:IsA("CornerWedgePart") or part.ClassName == "CornerWedgePart" then
+            shape = "Corner"
+        elseif part:IsA("TrussPart") or part.ClassName == "TrussPart" then
+            shape = "Truss"
+        elseif part:IsA("Part") then
+            local ok, pShape = pcall(function() return part.Shape end)
+            if ok and pShape then
+                if pShape == Enum.PartType.Ball then shape = "Ball"
+                elseif pShape == Enum.PartType.Cylinder then shape = "Cylinder"
+                elseif pShape == Enum.PartType.Wedge then shape = "Wedge"
+                end
+            end
+        end
+    end
+    return shape, meshStr
+end
+
+local serializedLines = {}
+for _, part in ipairs(partsToExport) do
+    local shape, meshStr = getInfo(part)
+    local cfStr = serializeCFrame(part.CFrame)
+    local sizeStr = serializeVector3(part.Size)
+    local colorStr = serializeColor3(part.Color)
+    local matStr = "Enum.Material." .. part.Material.Name
+    local transNum = round(math.clamp(part.Transparency, 0, 1))
+    local anch = part.Anchored and "true" or "false"
+    local canCollide = part.CanCollide and "true" or "false"
+    local texStr = getTextures(part)
+    local surfStr = getSurfaces(part)
+    
+    local line = string.format(
+        '  {%q, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s}',
+        shape, cfStr, sizeStr, colorStr, matStr, tostring(transNum), anch, canCollide, texStr, meshStr, surfStr
+    )
+    table.insert(serializedLines, line)
+end
+
+-- Importer Generator
+local generatedScript = string.format("-- %s Map | BY ANAN\n", gameName:gsub("[^\32-\126]", "")) .. [[
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local function setCharacterAnchored(state)
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in ipairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then pcall(function() part.Anchored = state end) end
+        end
+    end
+end
+
+local function getF3X()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local backpack = LocalPlayer:WaitForChild("Backpack")
+    for _, item in ipairs(char:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
+    end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("f3x") or item.Name:lower():find("build")) then return item end
+    end
+    return nil
+end
+
+local tool = getF3X()
+if not tool then error("[F3X Importer] F3X / Building Tools not found in Character or Backpack!") end
+
+local serverEndpoint = tool:FindFirstChild("ServerEndpoint", true) or tool:FindFirstChild("SyncAPI", true)
+if not serverEndpoint then error("[F3X Importer] ServerEndpoint / SyncAPI not found in tool!") end
+
+if serverEndpoint:IsA("Folder") or serverEndpoint:IsA("ModuleScript") then
+    serverEndpoint = serverEndpoint:FindFirstChild("ServerEndpoint", true) or serverEndpoint
+end
+
+local mapData = {
+]] .. table.concat(serializedLines, ",\n") .. [[
+
+}
+
+local function sendInChunks(remoteMethod, dataArray, chunkSize)
+    chunkSize = chunkSize or 1000
+    for i = 1, #dataArray, chunkSize do
+        local chunk = table.create(math.min(chunkSize, #dataArray - i + 1))
+        for j = i, math.min(i + chunkSize - 1, #dataArray) do
+            table.insert(chunk, dataArray[j])
+        end
+        pcall(function() serverEndpoint:InvokeServer(remoteMethod, chunk) end)
+    end
+end
+
+task.spawn(function()
+    setCharacterAnchored(true)
+
+    -- Ultra-fast workspace wipe
+    local partsToRemove = {}
+    for _, part in ipairs(workspace:GetDescendants()) do
+        if part:IsA("BasePart") and not part:IsA("Terrain") then
+            local isCharacter = false
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player.Character and part:IsDescendantOf(player.Character) then
+                    isCharacter = true
+                    break
+                end
+            end
+            if not isCharacter then
+                table.insert(partsToRemove, part)
+            end
+        end
+    end
+
+    if #partsToRemove > 0 then
+        sendInChunks("Remove", partsToRemove, 1000)
+    end
+
+    local totalParts = #mapData
+    local createdParts = table.create(totalParts)
+    local failedParts = 0
+    local completedWorkers = 0
+    local WORKERS = 30
+
+    for workerId = 1, WORKERS do
+        task.spawn(function()
+            for i = workerId, totalParts, WORKERS do
+                local data = mapData[i]
+                if data then
+                    local shape, cf = data[1], data[2]
+                    local ok, part = pcall(function() return serverEndpoint:InvokeServer("CreatePart", shape, cf, workspace) end)
+                    if ok and part then
+                        createdParts[i] = {Part = part, Data = data}
+                    else
+                        failedParts = failedParts + 1
+                    end
+                end
+            end
+            completedWorkers = completedWorkers + 1
+        end)
+    end
+
+    repeat task.wait() until completedWorkers >= WORKERS
+
+    local resizeBatch, colorBatch, materialBatch, transBatch = {}, {}, {}, {}
+    local anchorBatch, collisionBatch = {}, {}
+    local meshCreateBatch, meshSyncBatch, textureSyncBatch = {}, {}, {}
+    local surfaceBatch = {}
+
+    for i = 1, totalParts do
+        local item = createdParts[i]
+        if item and item.Part and item.Data then
+            local p, d = item.Part, item.Data
+            local shape, cf, size, color, mat, trans, anch, canCollide, textures, meshData, surfData = d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]
+            local numTrans = tonumber(trans) or 0
+
+            table.insert(resizeBatch, {Part = p, Size = size, CFrame = cf})
+            table.insert(colorBatch, {Part = p, Color = color})
+            table.insert(materialBatch, {Part = p, Material = mat, Transparency = numTrans})
+            table.insert(transBatch, {Part = p, Transparency = numTrans})
+            table.insert(anchorBatch, {Part = p, Anchored = anch})
+            table.insert(collisionBatch, {Part = p, CanCollide = canCollide})
+
+            if type(surfData) == "table" then
+                table.insert(surfaceBatch, {
+                    Part = p,
+                    Surfaces = surfData
+                })
+            end
+
+            if type(meshData) == "table" and meshData.MeshId and meshData.MeshId ~= "" then
+                table.insert(meshCreateBatch, {Part = p})
+                local mType = meshData.MeshType or Enum.MeshType.FileMesh
+                table.insert(meshSyncBatch, {
+                    Part = p,
+                    MeshType = mType,
+                    MeshId = tostring(meshData.MeshId),
+                    TextureId = tostring(meshData.TextureId or ""),
+                    Scale = typeof(meshData.Scale) == "Vector3" and meshData.Scale or Vector3.new(1, 1, 1),
+                    Offset = typeof(meshData.Offset) == "Vector3" and meshData.Offset or Vector3.new(0, 0, 0)
+                })
+            end
+
+            if type(textures) == "table" then
+                for _, t in ipairs(textures) do
+                    if t.Texture and t.Texture ~= "" then
+                        local ok = pcall(function()
+                            serverEndpoint:InvokeServer("CreateTexture", {p}, t.Type or "Decal", t.Face or Enum.NormalId.Front)
+                        end)
+                        if ok then
+                            table.insert(textureSyncBatch, {
+                                Part = p,
+                                Face = t.Face or Enum.NormalId.Front,
+                                Texture = tostring(t.Texture),
+                                Transparency = tonumber(t.Transparency) or 0,
+                                Color = t.Color or Color3.fromRGB(255, 255, 255),
+                                StudsPerTileU = tonumber(t.StudsPerTileU) or 1,
+                                StudsPerTileV = tonumber(t.StudsPerTileV) or 1,
+                                OffsetStudsU = tonumber(t.OffsetStudsU) or 0,
+                                OffsetStudsV = tonumber(t.OffsetStudsV) or 0
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    sendInChunks("SyncResize", resizeBatch, 1000)
+    sendInChunks("SyncColor", colorBatch, 1000)
+    sendInChunks("SyncMaterial", materialBatch, 1000)
+    sendInChunks("SyncTransparency", transBatch, 1000)
+    sendInChunks("SyncAnchor", anchorBatch, 1000)
+    sendInChunks("SyncCollision", collisionBatch, 1000)
+
+    if #surfaceBatch > 0 then
+        sendInChunks("SyncSurface", surfaceBatch, 1000)
+    end
+
+    if #meshCreateBatch > 0 then
+        sendInChunks("CreateMeshes", meshCreateBatch, 1000)
+        sendInChunks("SyncMesh", meshSyncBatch, 1000)
+    end
+
+    if #textureSyncBatch > 0 then
+        sendInChunks("SyncTexture", textureSyncBatch, 1000)
+    end
+
+    setCharacterAnchored(false)
+    print(string.format("[F3X Importer] Import finished instantly! Created %d parts (%d failed).", totalParts - failedParts, failedParts))
+end)
+]]
+
+-- Validate Generated Importer Syntax Before Clipboard Copy
+local isValid, loadErr = loadstring(generatedScript)
+if not isValid then
+    error("[F3X Copier] Generated script syntax validation failed: " .. tostring(loadErr))
+else
+    setclipboard(generatedScript)
+    print(string.format("[F3X Copier V14.1] Map script copied to clipboard successfully! Total parts: %d", #serializedLines))
+end
