@@ -1,10 +1,14 @@
--- (F3X) GAME COPIER V14.1 - BY ANAN
+-- (F3X) GAME COPIER V14.4 - BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("[F3X Copier] Your executor does not support setclipboard()") end
 
 local workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local MarketplaceService = game:GetService("MarketplaceService")
+
+-- Fetch Real Game Title Using GetProductInfo
+local info = MarketplaceService:GetProductInfo(game.PlaceId)
+local gameName = info and info.Name or "Copied Game"
 
 -- String Escaping Helper for Safe Code Generation
 local function escapeString(str)
@@ -35,15 +39,6 @@ end
 local function serializeColor3(col)
     return string.format("Color3.fromRGB(%d, %d, %d)", math.round(col.R * 255), math.round(col.G * 255), math.round(col.B * 255))
 end
-
--- Fetch game name for header comment safely
-local gameName = "Scanned Game"
-pcall(function()
-    local info = MarketplaceService:GetProductInfo(game.PlaceId)
-    if info and info.Name then
-        gameName = tostring(info.Name):gsub("[\r\n]", " ")
-    end
-end)
 
 local partsToExport = {}
 
@@ -215,7 +210,7 @@ for _, part in ipairs(partsToExport) do
     local colorStr = serializeColor3(part.Color)
     local matStr = "Enum.Material." .. part.Material.Name
     local transNum = round(math.clamp(part.Transparency, 0, 1))
-    local anch = part.Anchored and "true" or "false"
+    local anch = "true"
     local canCollide = part.CanCollide and "true" or "false"
     local texStr = getTextures(part)
     local surfStr = getSurfaces(part)
@@ -227,8 +222,8 @@ for _, part in ipairs(partsToExport) do
     table.insert(serializedLines, line)
 end
 
--- Importer Generator
-local generatedScript = string.format("-- %s Map | BY ANAN\n", gameName:gsub("[^\32-\126]", "")) .. [[
+-- Importer Generator Header
+local generatedScript = "-- " .. gameName .. " Map | BY ANAN\n" .. [[
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
@@ -282,7 +277,6 @@ end
 task.spawn(function()
     setCharacterAnchored(true)
 
-    -- Ultra-fast workspace wipe
     local partsToRemove = {}
     for _, part in ipairs(workspace:GetDescendants()) do
         if part:IsA("BasePart") and not part:IsA("Terrain") then
@@ -345,7 +339,7 @@ task.spawn(function()
             table.insert(colorBatch, {Part = p, Color = color})
             table.insert(materialBatch, {Part = p, Material = mat, Transparency = numTrans})
             table.insert(transBatch, {Part = p, Transparency = numTrans})
-            table.insert(anchorBatch, {Part = p, Anchored = anch})
+            table.insert(anchorBatch, {Part = p, Anchored = true})
             table.insert(collisionBatch, {Part = p, CanCollide = canCollide})
 
             if type(surfData) == "table" then
@@ -414,7 +408,7 @@ task.spawn(function()
     end
 
     setCharacterAnchored(false)
-    print(string.format("[F3X Importer] Import finished instantly! Created %d parts (%d failed).", totalParts - failedParts, failedParts))
+    print(string.format("[F3X Importer] Import finished! Created %d parts.", totalParts - failedParts))
 end)
 ]]
 
@@ -424,5 +418,5 @@ if not isValid then
     error("[F3X Copier] Generated script syntax validation failed: " .. tostring(loadErr))
 else
     setclipboard(generatedScript)
-    print(string.format("[F3X Copier V14.1] Map script copied to clipboard successfully! Total parts: %d", #serializedLines))
+    print(string.format("[F3X Copier V14.4] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
 end
