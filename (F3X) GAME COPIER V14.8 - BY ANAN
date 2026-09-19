@@ -1,4 +1,4 @@
--- (F3X) GAME COPIER V14.4 - BY ANAN
+-- (F3X) GAME COPIER V14.8 - BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("[F3X Copier] Your executor does not support setclipboard()") end
 
@@ -10,7 +10,14 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local info = MarketplaceService:GetProductInfo(game.PlaceId)
 local gameName = info and info.Name or "Copied Game"
 
--- String Escaping Helper for Safe Code Generation
+-- Asset ID Parser Helper (Strips rbxassetid://, URLs, and non-digits)
+local function extractAssetId(val)
+    if not val then return "" end
+    local str = tostring(val)
+    return str:match("(%d+)") or ""
+end
+
+-- String Escaping Helper
 local function escapeString(str)
     if type(str) ~= "string" then return '""' end
     return string.format("%q", str)
@@ -89,36 +96,47 @@ local function getSurfaces(part)
     )
 end
 
--- Texture / Decal Serialization
+-- Texture & Decal Serialization
 local function getTextures(part)
     local list = {}
     for _, child in ipairs(part:GetChildren()) do
         if child:IsA("Decal") or child:IsA("Texture") then
             local isTex = child:IsA("Texture")
-            local texImg = tostring(child.Texture or "")
-            if texImg ~= "" then
+            local rawTex = child.Texture or ""
+            local cleanId = extractAssetId(rawTex)
+            
+            if cleanId ~= "" then
                 local r, g, b = 255, 255, 255
                 pcall(function()
-                    local col = child.Color3
-                    r = math.round(col.R * 255)
-                    g = math.round(col.G * 255)
-                    b = math.round(col.B * 255)
+                    if child.Color3 then
+                        local col = child.Color3
+                        r = math.round(col.R * 255)
+                        g = math.round(col.G * 255)
+                        b = math.round(col.B * 255)
+                    end
                 end)
                 
                 local faceName = child.Face and child.Face.Name or "Front"
                 local faceEnumStr = "Enum.NormalId." .. (Enum.NormalId[faceName] and faceName or "Front")
                 local trans = round(child.Transparency or 0)
                 
-                local uStuds = isTex and round(child.StudsPerTileU or 1) or 1
-                local vStuds = isTex and round(child.StudsPerTileV or 1) or 1
-                local uOffset = isTex and round(child.OffsetStudsU or 0) or 0
-                local vOffset = isTex and round(child.OffsetStudsV or 0) or 0
+                local uStuds = 1
+                local vStuds = 1
+                local uOffset = 0
+                local vOffset = 0
+                
+                if isTex then
+                    pcall(function() uStuds = round(child.StudsPerTileU or 1) end)
+                    pcall(function() vStuds = round(child.StudsPerTileV or 1) end)
+                    pcall(function() uOffset = round(child.OffsetStudsU or 0) end)
+                    pcall(function() vOffset = round(child.OffsetStudsV or 0) end)
+                end
                 
                 local entry = string.format(
                     '{Type = %s, Face = %s, Texture = %s, Transparency = %s, Color = Color3.fromRGB(%d, %d, %d), StudsPerTileU = %s, StudsPerTileV = %s, OffsetStudsU = %s, OffsetStudsV = %s}',
                     escapeString(child.ClassName),
                     faceEnumStr,
-                    escapeString(texImg),
+                    escapeString(cleanId),
                     tostring(trans),
                     r, g, b,
                     tostring(uStuds),
@@ -140,9 +158,10 @@ local function getInfo(part)
     local meshStr = "nil"
     local meshInfo = nil
     
+    -- Check for MeshPart
     if part:IsA("MeshPart") or part.ClassName == "MeshPart" then
-        local meshId = tostring(part.MeshId or "")
-        local textureId = tostring(part.TextureID or "")
+        local meshId = extractAssetId(part.MeshId)
+        local textureId = extractAssetId(part.TextureID)
         if meshId ~= "" then
             meshInfo = {
                 MeshType = "FileMesh",
@@ -154,22 +173,26 @@ local function getInfo(part)
         end
     end
 
+    -- Check for SpecialMesh (Custom OR Built-In like Head, Wedge, Sphere, Torso, Brick)
     local sm = part:FindFirstChildOfClass("SpecialMesh")
     if sm then
-        local meshId = tostring(sm.MeshId or "")
-        local textureId = tostring(sm.TextureId or "")
+        local meshId = extractAssetId(sm.MeshId)
+        local textureId = extractAssetId(sm.TextureId)
         local mScale = sm.Scale or Vector3.new(1, 1, 1)
         local mOffset = sm.Offset or Vector3.new(0, 0, 0)
         local mTypeName = "FileMesh"
         pcall(function() mTypeName = sm.MeshType.Name end)
         
-        meshInfo = {
-            MeshType = mTypeName,
-            MeshId = meshId,
-            TextureId = textureId,
-            Scale = mScale,
-            Offset = mOffset
-        }
+        -- Accept if it's a built-in type (Head, Wedge, etc.) OR has a custom MeshId
+        if mTypeName ~= "FileMesh" or meshId ~= "" then
+            meshInfo = {
+                MeshType = mTypeName,
+                MeshId = meshId,
+                TextureId = textureId,
+                Scale = mScale,
+                Offset = mOffset
+            }
+        end
     end
     
     if meshInfo then
@@ -325,7 +348,8 @@ task.spawn(function()
 
     local resizeBatch, colorBatch, materialBatch, transBatch = {}, {}, {}, {}
     local anchorBatch, collisionBatch = {}, {}
-    local meshCreateBatch, meshSyncBatch, textureSyncBatch = {}, {}, {}
+    local meshCreateBatch, meshSyncBatch = {}, {}
+    local textureCreateBatch, textureSyncBatch = {}, {}
     local surfaceBatch = {}
 
     for i = 1, totalParts do
@@ -349,38 +373,56 @@ task.spawn(function()
                 })
             end
 
-            if type(meshData) == "table" and meshData.MeshId and meshData.MeshId ~= "" then
-                table.insert(meshCreateBatch, {Part = p})
+            -- Built-In & Custom Mesh Handler
+            if type(meshData) == "table" then
                 local mType = meshData.MeshType or Enum.MeshType.FileMesh
-                table.insert(meshSyncBatch, {
-                    Part = p,
-                    MeshType = mType,
-                    MeshId = tostring(meshData.MeshId),
-                    TextureId = tostring(meshData.TextureId or ""),
-                    Scale = typeof(meshData.Scale) == "Vector3" and meshData.Scale or Vector3.new(1, 1, 1),
-                    Offset = typeof(meshData.Offset) == "Vector3" and meshData.Offset or Vector3.new(0, 0, 0)
-                })
+                local hasCustomId = (meshData.MeshId and tostring(meshData.MeshId) ~= "")
+                local isBuiltInMesh = (mType ~= Enum.MeshType.FileMesh)
+
+                if hasCustomId or isBuiltInMesh then
+                    table.insert(meshCreateBatch, {Part = p})
+                    
+                    local formattedMeshId = hasCustomId and ("rbxassetid://" .. tostring(meshData.MeshId)) or ""
+                    local formattedTexId = (meshData.TextureId and tostring(meshData.TextureId) ~= "") and ("rbxassetid://" .. tostring(meshData.TextureId)) or ""
+
+                    table.insert(meshSyncBatch, {
+                        Part = p,
+                        MeshType = mType,
+                        MeshId = formattedMeshId,
+                        TextureId = formattedTexId,
+                        Scale = typeof(meshData.Scale) == "Vector3" and meshData.Scale or Vector3.new(1, 1, 1),
+                        Offset = typeof(meshData.Offset) == "Vector3" and meshData.Offset or Vector3.new(0, 0, 0)
+                    })
+                end
             end
 
             if type(textures) == "table" then
                 for _, t in ipairs(textures) do
-                    if t.Texture and t.Texture ~= "" then
-                        local ok = pcall(function()
-                            serverEndpoint:InvokeServer("CreateTexture", {p}, t.Type or "Decal", t.Face or Enum.NormalId.Front)
-                        end)
-                        if ok then
-                            table.insert(textureSyncBatch, {
-                                Part = p,
-                                Face = t.Face or Enum.NormalId.Front,
-                                Texture = tostring(t.Texture),
-                                Transparency = tonumber(t.Transparency) or 0,
-                                Color = t.Color or Color3.fromRGB(255, 255, 255),
-                                StudsPerTileU = tonumber(t.StudsPerTileU) or 1,
-                                StudsPerTileV = tonumber(t.StudsPerTileV) or 1,
-                                OffsetStudsU = tonumber(t.OffsetStudsU) or 0,
-                                OffsetStudsV = tonumber(t.OffsetStudsV) or 0
-                            })
+                    if t.Texture and tostring(t.Texture) ~= "" then
+                        local texType = t.Type or "Decal"
+                        local faceEnum = t.Face or Enum.NormalId.Front
+                        
+                        table.insert(textureCreateBatch, {
+                            Part = p,
+                            TextureType = texType,
+                            Face = faceEnum
+                        })
+                        
+                        local syncData = {
+                            Part = p,
+                            TextureType = texType,
+                            Face = faceEnum,
+                            Texture = "rbxassetid://" .. tostring(t.Texture),
+                            Transparency = tonumber(t.Transparency) or 0,
+                            Color = t.Color or Color3.fromRGB(255, 255, 255)
+                        }
+                        if texType == "Texture" then
+                            syncData.StudsPerTileU = tonumber(t.StudsPerTileU) or 1
+                            syncData.StudsPerTileV = tonumber(t.StudsPerTileV) or 1
+                            syncData.OffsetStudsU = tonumber(t.OffsetStudsU) or 0
+                            syncData.OffsetStudsV = tonumber(t.OffsetStudsV) or 0
                         end
+                        table.insert(textureSyncBatch, syncData)
                     end
                 end
             end
@@ -403,7 +445,8 @@ task.spawn(function()
         sendInChunks("SyncMesh", meshSyncBatch, 1000)
     end
 
-    if #textureSyncBatch > 0 then
+    if #textureCreateBatch > 0 then
+        sendInChunks("CreateTextures", textureCreateBatch, 1000)
         sendInChunks("SyncTexture", textureSyncBatch, 1000)
     end
 
@@ -412,11 +455,11 @@ task.spawn(function()
 end)
 ]]
 
--- Validate Generated Importer Syntax Before Clipboard Copy
+-- Syntax Validation
 local isValid, loadErr = loadstring(generatedScript)
 if not isValid then
     error("[F3X Copier] Generated script syntax validation failed: " .. tostring(loadErr))
 else
     setclipboard(generatedScript)
-    print(string.format("[F3X Copier V14.4] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
+    print(string.format("[F3X Copier V14.8] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
 end
