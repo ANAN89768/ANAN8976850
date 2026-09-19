@@ -1,4 +1,4 @@
--- (F3X) GAME COPIER V14.8 - BY ANAN
+-- (F3X) GAME COPIER V14.9 - BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("[F3X Copier] Your executor does not support setclipboard()") end
 
@@ -158,7 +158,30 @@ local function getInfo(part)
     local meshStr = "nil"
     local meshInfo = nil
     
-    -- Check for MeshPart
+    -- 1. Class / Part Shape Identification
+    if part:IsA("SpawnLocation") or part.ClassName == "SpawnLocation" then
+        shape = "Spawn"
+    elseif part:IsA("Seat") or part.ClassName == "Seat" then
+        shape = "Seat"
+    elseif part:IsA("VehicleSeat") or part.ClassName == "VehicleSeat" then
+        shape = "VehicleSeat"
+    elseif part:IsA("WedgePart") or part.ClassName == "WedgePart" then
+        shape = "Wedge"
+    elseif part:IsA("CornerWedgePart") or part.ClassName == "CornerWedgePart" then
+        shape = "Corner"
+    elseif part:IsA("TrussPart") or part.ClassName == "TrussPart" then
+        shape = "Truss"
+    elseif part:IsA("Part") then
+        local ok, pShape = pcall(function() return part.Shape end)
+        if ok and pShape then
+            if pShape == Enum.PartType.Ball then shape = "Ball"
+            elseif pShape == Enum.PartType.Cylinder then shape = "Cylinder"
+            elseif pShape == Enum.PartType.Wedge then shape = "Wedge"
+            end
+        end
+    end
+
+    -- 2. Check for MeshPart
     if part:IsA("MeshPart") or part.ClassName == "MeshPart" then
         local meshId = extractAssetId(part.MeshId)
         local textureId = extractAssetId(part.TextureID)
@@ -173,7 +196,7 @@ local function getInfo(part)
         end
     end
 
-    -- Check for SpecialMesh (Custom OR Built-In like Head, Wedge, Sphere, Torso, Brick)
+    -- 3. Check for SpecialMesh (Custom OR Built-In)
     local sm = part:FindFirstChildOfClass("SpecialMesh")
     if sm then
         local meshId = extractAssetId(sm.MeshId)
@@ -183,7 +206,6 @@ local function getInfo(part)
         local mTypeName = "FileMesh"
         pcall(function() mTypeName = sm.MeshType.Name end)
         
-        -- Accept if it's a built-in type (Head, Wedge, etc.) OR has a custom MeshId
         if mTypeName ~= "FileMesh" or meshId ~= "" then
             meshInfo = {
                 MeshType = mTypeName,
@@ -205,23 +227,8 @@ local function getInfo(part)
             serializeVector3(meshInfo.Scale),
             serializeVector3(meshInfo.Offset)
         )
-    else
-        if part:IsA("WedgePart") or part.ClassName == "WedgePart" then
-            shape = "Wedge"
-        elseif part:IsA("CornerWedgePart") or part.ClassName == "CornerWedgePart" then
-            shape = "Corner"
-        elseif part:IsA("TrussPart") or part.ClassName == "TrussPart" then
-            shape = "Truss"
-        elseif part:IsA("Part") then
-            local ok, pShape = pcall(function() return part.Shape end)
-            if ok and pShape then
-                if pShape == Enum.PartType.Ball then shape = "Ball"
-                elseif pShape == Enum.PartType.Cylinder then shape = "Cylinder"
-                elseif pShape == Enum.PartType.Wedge then shape = "Wedge"
-                end
-            end
-        end
     end
+
     return shape, meshStr
 end
 
@@ -461,5 +468,5 @@ if not isValid then
     error("[F3X Copier] Generated script syntax validation failed: " .. tostring(loadErr))
 else
     setclipboard(generatedScript)
-    print(string.format("[F3X Copier V14.8] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
+    print(string.format("[F3X Copier V14.9] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
 end
