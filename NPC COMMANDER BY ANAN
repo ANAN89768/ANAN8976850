@@ -333,7 +333,7 @@ local function processCommand(fullCommandText)
             end
         end)
 
-        -- Back and forth pacing (1 stud and 5 studs)
+        -- Back and forth pacing (0 stud and 5 studs)
         activeTask = task.spawn(function()
             local closeDistance = true
             while humanoid and humanoid.Health > 0 and rootPart do
@@ -341,11 +341,11 @@ local function processCommand(fullCommandText)
                 local currentTRoot = currentTChar and currentTChar:FindFirstChild("HumanoidRootPart")
 
                 if currentTRoot then
-                    local targetOffset = closeDistance and 1 or 5
+                    local targetOffset = closeDistance and 0 or 5
                     local movePos = (currentTRoot.CFrame * CFrame.new(0, 0, targetOffset)).Position
                     humanoid:MoveTo(movePos)
                     closeDistance = not closeDistance
-                    task.wait(0.5)
+                    task.wait(0.2)
                 else
                     break
                 end
