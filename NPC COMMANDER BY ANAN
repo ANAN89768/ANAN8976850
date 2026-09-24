@@ -1,0 +1,588 @@
+-- =======================================================
+-- NPC COMMANDER By ANAN
+-- Prefix: "."
+-- =======================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TextChatService = game:GetService("TextChatService")
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+local PREFIX = "."
+local activeLoop = nil
+local activeTask = nil
+local activeNPC = nil
+
+-- Executor-Safe GUI Parent
+local parentGui = (gethui and gethui()) or LocalPlayer:WaitForChild("PlayerGui")
+
+-- -------------------------------------------------------
+-- 1. Helper: Find Player by Partial Name / DisplayName / "me"
+-- -------------------------------------------------------
+local function findPlayer(query)
+    query = query:lower():gsub("^%s*(.-)%s*$", "%1")
+    if query == "" or query == "me" or query == "myself" then
+        return LocalPlayer
+    end
+
+    -- Direct / Prefix Match
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Name:lower():sub(1, #query) == query or player.DisplayName:lower():sub(1, #query) == query then
+            return player
+        end
+    end
+
+    -- Substring Search Fallback
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Name:lower():find(query, 1, true) or player.DisplayName:lower():find(query, 1, true) then
+            return player
+        end
+    end
+
+    return nil
+end
+
+-- -------------------------------------------------------
+-- 2. Command Registry
+-- -------------------------------------------------------
+local COMMAND_REGISTRY = {
+    -- Navigation & Target Controls
+    {keys = {"bng"}, intent = "BNG", desc = ".bng <plr|me> — TP behind target, physics-faces target while pacing between 1 and 5 studs"},
+    {keys = {"follow"}, intent = "FOLLOW", desc = ".follow <plr|me> — Continuously follows target player (4 stud buffer)"},
+    {keys = {"come"}, intent = "COME", desc = ".come <plr|me> — Walks to target's location (stops 4 studs away)"},
+    {keys = {"headsit", "hs"}, intent = "HEADSIT", desc = ".headsit <plr|me> — Attaches NPC to sit on target player's head"},
+    {keys = {"don't follow", "dont follow", "unfollow"}, intent = "STOP", desc = "Stops following / active loops"},
+    {keys = {"stop", "stay", "freeze", "halt"}, intent = "STOP", desc = "Halts movement and active routines"},
+    {keys = {"go there", "move to mouse"}, intent = "MOVE_TO_MOUSE", desc = "Walks to cursor target"},
+    {keys = {"jump", "hop"}, intent = "JUMP", desc = "Triggers humanoid jump"},
+
+    -- Speeds
+    {keys = {"sprint", "run"}, intent = "SPEED_FAST", desc = "Sets WalkSpeed to 28"},
+    {keys = {"walk", "normal speed"}, intent = "SPEED_NORMAL", desc = "Resets WalkSpeed to 16"},
+    {keys = {"slow", "crawl"}, intent = "SPEED_SLOW", desc = "Sets WalkSpeed to 8"},
+    {keys = {"super speed"}, intent = "SPEED_SUPER", desc = "Sets WalkSpeed to 50"},
+
+    -- Teleportation & Positional Offsets
+    {keys = {"tp to", "bring", "tp"}, intent = "TP_ME", desc = ".tp <plr|me> — Teleports NPC 4 studs in front of target"},
+    {keys = {"tp to mouse"}, intent = "TP_MOUSE", desc = "Teleports NPC to mouse hit position"},
+    {keys = {"behind"}, intent = "POS_BEHIND", desc = ".behind <plr|me> — Walks 4 studs behind target"},
+    {keys = {"in front", "front"}, intent = "POS_FRONT", desc = ".in front <plr|me> — Walks 4 studs in front of target"},
+    {keys = {"left side", "left"}, intent = "POS_LEFT", desc = ".left <plr|me> — Walks 4 studs to target's left"},
+    {keys = {"right side", "right"}, intent = "POS_RIGHT", desc = ".right <plr|me> — Walks 4 studs to target's right"},
+
+    -- Physics Stances
+    {keys = {"sit"}, intent = "SIT", desc = "Forces NPC into sit stance"},
+    {keys = {"stand", "get up"}, intent = "STAND", desc = "Resets sit and ragdoll states"},
+    {keys = {"ragdoll", "collapse", "lay down"}, intent = "RAGDOLL", desc = "Enables PlatformStand physics"},
+    {keys = {"unragdoll"}, intent = "UNRAGDOLL", desc = "Disables PlatformStand physics"},
+
+    -- Physics Loops & Rotations
+    {keys = {"look at", "face"}, intent = "LOOK_AT", desc = ".look at <plr|me> — Rotates toward target player"},
+    {keys = {"look away"}, intent = "LOOK_AWAY", desc = ".look away <plr|me> — Rotates away from target player"},
+    {keys = {"spin"}, intent = "SPIN", desc = "Physics rotation loop"},
+    {keys = {"orbit"}, intent = "ORBIT", desc = ".orbit <plr|me> — Continuous circular orbit around target"},
+    {keys = {"patrol"}, intent = "PATROL", desc = "Patrols 15 studs back and forth"},
+    {keys = {"float", "levitate"}, intent = "FLOAT", desc = "Applies BodyVelocity upward force"},
+    {keys = {"unfloat", "land"}, intent = "UNFLOAT", desc = "Removes BodyVelocity float"},
+    {keys = {"flip", "backflip"}, intent = "FLIP", desc = "Impulse backflip rotation"},
+
+    -- UI Controls
+    {keys = {"show command", "commands", "help"}, intent = "SHOW_GUI", desc = "Opens command list GUI"},
+    {keys = {"hide command", "close gui"}, intent = "HIDE_GUI", desc = "Closes command list GUI"}
+}
+
+-- -------------------------------------------------------
+-- 3. Command List GUI Construction
+-- -------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "NPC_Commander_Gui"
+screenGui.ResetOnSpawn = false
+screenGui.Enabled = false
+screenGui.Parent = parentGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 380, 0, 320)
+mainFrame.Position = UDim2.new(0.5, -190, 0.5, -160)
+mainFrame.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = mainFrame
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -40, 0, 36)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "NPC COMMANDER By ANAN (Prefix: .)"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 14
+title.Font = Enum.Font.SourceSansBold
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = mainFrame
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 24, 0, 24)
+closeBtn.Position = UDim2.new(1, -30, 0, 6)
+closeBtn.BackgroundColor3 = Color3.fromRGB(215, 55, 55)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.SourceSansBold
+closeBtn.Parent = mainFrame
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 5)
+closeCorner.Parent = closeBtn
+
+closeBtn.MouseButton1Click:Connect(function()
+    screenGui.Enabled = false
+end)
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, -16, 1, -46)
+scrollFrame.Position = UDim2.new(0, 8, 0, 40)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.ScrollBarThickness = 4
+scrollFrame.Parent = mainFrame
+
+local uiList = Instance.new("UIListLayout")
+uiList.SortOrder = Enum.SortOrder.LayoutOrder
+uiList.Padding = UDim.new(0, 4)
+uiList.Parent = scrollFrame
+
+for _, item in ipairs(COMMAND_REGISTRY) do
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -8, 0, 26)
+    label.BackgroundColor3 = Color3.fromRGB(35, 35, 44)
+    label.TextColor3 = Color3.fromRGB(220, 220, 220)
+    label.TextSize = 12
+    label.Font = Enum.Font.SourceSans
+    label.Text = string.format("  .%s — %s", item.keys[1], item.desc)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = scrollFrame
+    
+    local lblCorner = Instance.new("UICorner")
+    lblCorner.CornerRadius = UDim.new(0, 4)
+    lblCorner.Parent = label
+end
+
+uiList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, uiList.AbsoluteContentSize.Y + 8)
+end)
+
+-- -------------------------------------------------------
+-- 4. Ownership & NPC Identification
+-- -------------------------------------------------------
+local function hasOwnership(part)
+    if isnetworkowner then
+        return isnetworkowner(part)
+    elseif part.GetNetworkOwner then
+        local owner = part:GetNetworkOwner()
+        return owner == LocalPlayer or owner == nil
+    end
+    return true
+end
+
+local function getClosestNPC()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+
+    local playerPos = char.HumanoidRootPart.Position
+    local closestDist = math.huge
+    local targetNPC = nil
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj ~= char then
+            if not Players:GetPlayerFromCharacter(obj) then
+                local humanoid = obj:FindFirstChildOfClass("Humanoid")
+                local rootPart = obj:FindFirstChild("HumanoidRootPart") or obj.PrimaryPart
+
+                if humanoid and rootPart and humanoid.Health > 0 then
+                    if hasOwnership(rootPart) then
+                        local dist = (rootPart.Position - playerPos).Magnitude
+                        if dist < closestDist then
+                            closestDist = dist
+                            targetNPC = obj
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return targetNPC
+end
+
+-- -------------------------------------------------------
+-- 5. Command Parser & Task Management
+-- -------------------------------------------------------
+local function stopCurrentTask()
+    if activeLoop then
+        activeLoop:Disconnect()
+        activeLoop = nil
+    end
+    if activeTask then
+        task.cancel(activeTask)
+        activeTask = nil
+    end
+    if activeNPC then
+        local hum = activeNPC:FindFirstChildOfClass("Humanoid")
+        local root = activeNPC:FindFirstChild("HumanoidRootPart") or activeNPC.PrimaryPart
+        
+        if hum then
+            hum.AutoRotate = true
+            hum.Sit = false
+        end
+        if root then
+            local gyro = root:FindFirstChild("NPC_FaceGyro")
+            if gyro then
+                gyro:Destroy()
+            end
+        end
+        activeNPC = nil
+    end
+end
+
+local function analyzeCommandIntent(rawText)
+    local text = rawText:lower():gsub("^%s*(.-)%s*$", "%1")
+    for _, cmd in ipairs(COMMAND_REGISTRY) do
+        for _, key in ipairs(cmd.keys) do
+            if text:find(key, 1, true) then
+                return cmd.intent
+            end
+        end
+    end
+    return "UNKNOWN"
+end
+
+local function getTargetRoot(query)
+    local targetPlayer = findPlayer(query)
+    if targetPlayer and targetPlayer.Character then
+        return targetPlayer.Character:FindFirstChild("HumanoidRootPart"), targetPlayer
+    end
+    return nil, nil
+end
+
+-- -------------------------------------------------------
+-- 6. Execution Handler
+-- -------------------------------------------------------
+local function processCommand(fullCommandText)
+    local cleanText = fullCommandText:gsub("^%s*(.-)%s*$", "%1")
+    local lowerText = cleanText:lower()
+
+    if lowerText == "show command" or lowerText == "commands" or lowerText == "help" then
+        screenGui.Enabled = true
+        return
+    elseif lowerText == "hide command" or lowerText == "close gui" then
+        screenGui.Enabled = false
+        return
+    end
+
+    local npc = getClosestNPC()
+    if not npc then
+        warn("[NPC COMMANDER] No controllable NPC found nearby or ownership missing.")
+        return
+    end
+
+    local humanoid = npc:FindFirstChildOfClass("Humanoid")
+    local rootPart = npc:FindFirstChild("HumanoidRootPart") or npc.PrimaryPart
+    if not humanoid or not rootPart then return end
+
+    stopCurrentTask()
+
+    -- 1. BNG Command (.bng <plr|me>)
+    if lowerText:sub(1, 3) == "bng" then
+        local targetQuery = cleanText:sub(4)
+        local targetRoot, targetPlayer = getTargetRoot(targetQuery)
+        
+        if not targetRoot or not targetPlayer then
+            warn("[NPC COMMANDER] Player not found for .bng: " .. targetQuery)
+            return
+        end
+
+        activeNPC = npc
+        humanoid.AutoRotate = false
+
+        local gyro = Instance.new("BodyGyro")
+        gyro.Name = "NPC_FaceGyro"
+        gyro.MaxTorque = Vector3.new(0, 400000, 0)
+        gyro.P = 20000
+        gyro.D = 100
+        gyro.Parent = rootPart
+
+        -- Instant initial TP behind target
+        rootPart.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 2)
+
+        -- Continuous BodyGyro facing
+        activeLoop = RunService.Heartbeat:Connect(function()
+            local currentTChar = targetPlayer.Character
+            local currentTRoot = currentTChar and currentTChar:FindFirstChild("HumanoidRootPart")
+
+            if currentTRoot and rootPart and humanoid and humanoid.Health > 0 then
+                gyro.CFrame = CFrame.lookAt(
+                    rootPart.Position,
+                    Vector3.new(currentTRoot.Position.X, rootPart.Position.Y, currentTRoot.Position.Z)
+                )
+            else
+                stopCurrentTask()
+            end
+        end)
+
+        -- Back and forth pacing (1 stud and 5 studs)
+        activeTask = task.spawn(function()
+            local closeDistance = true
+            while humanoid and humanoid.Health > 0 and rootPart do
+                local currentTChar = targetPlayer.Character
+                local currentTRoot = currentTChar and currentTChar:FindFirstChild("HumanoidRootPart")
+
+                if currentTRoot then
+                    local targetOffset = closeDistance and 1 or 5
+                    local movePos = (currentTRoot.CFrame * CFrame.new(0, 0, targetOffset)).Position
+                    humanoid:MoveTo(movePos)
+                    closeDistance = not closeDistance
+                    task.wait(0.5)
+                else
+                    break
+                end
+            end
+        end)
+        return
+    end
+
+    -- 2. Headsit Command (.headsit <plr|me> | .hs <plr|me>)
+    if lowerText:sub(1, 7) == "headsit" or lowerText:sub(1, 2) == "hs" then
+        local targetQuery = cleanText:gsub("^%s*headsit%s*", ""):gsub("^%s*hs%s*", "")
+        local targetRoot, targetPlayer = getTargetRoot(targetQuery)
+
+        if not targetRoot or not targetPlayer then
+            warn("[NPC COMMANDER] Target player not found for headsit: " .. targetQuery)
+            return
+        end
+
+        activeNPC = npc
+        humanoid.Sit = true
+
+        activeLoop = RunService.Heartbeat:Connect(function()
+            local tChar = targetPlayer.Character
+            local tHead = tChar and tChar:FindFirstChild("Head")
+
+            if tHead and rootPart and humanoid and humanoid.Health > 0 then
+                humanoid.Sit = true
+                rootPart.CFrame = tHead.CFrame * CFrame.new(0, 1.5, 0)
+            else
+                stopCurrentTask()
+            end
+        end)
+        return
+    end
+
+    -- 3. Follow (.follow <plr|me>)
+    if lowerText:sub(1, 6) == "follow" and not lowerText:find("dont") and not lowerText:find("don't") and not lowerText:find("unfollow") then
+        local targetQuery = cleanText:sub(7)
+        local targetRoot, targetPlayer = getTargetRoot(targetQuery)
+        if not targetRoot or not targetPlayer then
+            warn("[NPC COMMANDER] Target not found for follow: " .. targetQuery)
+            return
+        end
+
+        activeLoop = RunService.Heartbeat:Connect(function()
+            local tChar = targetPlayer.Character
+            local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+            if tRoot and rootPart and humanoid then
+                local pPos = tRoot.Position
+                local nPos = rootPart.Position
+                if (pPos - nPos).Magnitude > 4 then
+                    local dir = (nPos - pPos).Unit
+                    humanoid:MoveTo(pPos + (dir * 4))
+                else
+                    humanoid:MoveTo(nPos)
+                end
+            end
+        end)
+        return
+    end
+
+    -- 4. Come (.come <plr|me>)
+    if lowerText:sub(1, 4) == "come" then
+        local targetQuery = cleanText:sub(5):gsub("^%s*here%s*", "")
+        local targetRoot = getTargetRoot(targetQuery)
+        if targetRoot then
+            local pPos = targetRoot.Position
+            local nPos = rootPart.Position
+            local dist = (pPos - nPos).Magnitude
+            if dist > 4 then
+                local dir = (nPos - pPos).Unit
+                humanoid:MoveTo(pPos + (dir * 4))
+            else
+                humanoid:MoveTo(nPos)
+            end
+        end
+        return
+    end
+
+    -- 5. Teleport / Bring (.tp <plr|me> | .bring <plr|me>)
+    if (lowerText:sub(1, 5) == "tp to" or lowerText:sub(1, 5) == "bring" or lowerText:sub(1, 2) == "tp") and not lowerText:find("mouse") then
+        local targetQuery = ""
+        if lowerText:sub(1, 5) == "tp to" then
+            targetQuery = cleanText:sub(6)
+        elseif lowerText:sub(1, 5) == "bring" then
+            targetQuery = cleanText:sub(6)
+        else
+            targetQuery = cleanText:sub(3)
+        end
+        local targetRoot = getTargetRoot(targetQuery)
+        if targetRoot then
+            rootPart.CFrame = targetRoot.CFrame * CFrame.new(0, 0, -4)
+        end
+        return
+    end
+
+    -- 6. Positional Offsets (.behind, .in front, .left, .right)
+    if lowerText:find("behind") then
+        local targetQuery = cleanText:gsub("^%s*behind%s*", "")
+        local targetRoot = getTargetRoot(targetQuery)
+        if targetRoot then
+            humanoid:MoveTo((targetRoot.CFrame * CFrame.new(0, 0, 4)).Position)
+        end
+        return
+    elseif lowerText:find("front") then
+        local targetQuery = cleanText:gsub("^%s*in%s*front%s*", ""):gsub("^%s*front%s*", "")
+        local targetRoot = getTargetRoot(targetQuery)
+        if targetRoot then
+            humanoid:MoveTo((targetRoot.CFrame * CFrame.new(0, 0, -4)).Position)
+        end
+        return
+    elseif lowerText:find("left") then
+        local targetQuery = cleanText:gsub("^%s*left%s*side%s*", ""):gsub("^%s*left%s*", "")
+        local targetRoot = getTargetRoot(targetQuery)
+        if targetRoot then
+            humanoid:MoveTo((targetRoot.CFrame * CFrame.new(-4, 0, 0)).Position)
+        end
+        return
+    elseif lowerText:find("right") then
+        local targetQuery = cleanText:gsub("^%s*right%s*side%s*", ""):gsub("^%s*right%s*", "")
+        local targetRoot = getTargetRoot(targetQuery)
+        if targetRoot then
+            humanoid:MoveTo((targetRoot.CFrame * CFrame.new(4, 0, 0)).Position)
+        end
+        return
+    end
+
+    -- 7. Look At / Face (.look at <plr|me> | .face <plr|me>)
+    if lowerText:find("look at") or lowerText:find("face") then
+        local targetQuery = cleanText:gsub("^%s*look%s*at%s*", ""):gsub("^%s*face%s*", "")
+        local targetRoot = getTargetRoot(targetQuery)
+        if targetRoot then
+            rootPart.CFrame = CFrame.lookAt(rootPart.Position, Vector3.new(targetRoot.Position.X, rootPart.Position.Y, targetRoot.Position.Z))
+        end
+        return
+    end
+
+    -- 8. Look Away (.look away <plr|me>)
+    if lowerText:find("look away") then
+        local targetQuery = cleanText:gsub("^%s*look%s*away%s*", "")
+        local targetRoot = getTargetRoot(targetQuery)
+        if targetRoot then
+            local dir = (rootPart.Position - targetRoot.Position).Unit
+            rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + dir)
+        end
+        return
+    end
+
+    -- 9. Orbit (.orbit <plr|me>)
+    if lowerText:find("orbit") then
+        local targetQuery = cleanText:gsub("^%s*orbit%s*", "")
+        local targetRoot, targetPlayer = getTargetRoot(targetQuery)
+        if targetRoot and targetPlayer then
+            local angle = 0
+            activeLoop = RunService.Heartbeat:Connect(function()
+                local tChar = targetPlayer.Character
+                local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+                if tRoot then
+                    angle = angle + 0.05
+                    local offset = Vector3.new(math.cos(angle) * 6, 0, math.sin(angle) * 6)
+                    humanoid:MoveTo(tRoot.Position + offset)
+                end
+            end)
+        end
+        return
+    end
+
+    -- Standard Non-Target Commands
+    local intent = analyzeCommandIntent(cleanText)
+
+    if intent == "STOP" then
+        humanoid:MoveTo(rootPart.Position)
+    elseif intent == "MOVE_TO_MOUSE" then
+        humanoid:MoveTo(Mouse.Hit.Position)
+    elseif intent == "JUMP" then
+        humanoid.Jump = true
+    elseif intent == "SPEED_FAST" then humanoid.WalkSpeed = 28
+    elseif intent == "SPEED_NORMAL" then humanoid.WalkSpeed = 16
+    elseif intent == "SPEED_SLOW" then humanoid.WalkSpeed = 8
+    elseif intent == "SPEED_SUPER" then humanoid.WalkSpeed = 50
+    elseif intent == "TP_MOUSE" then
+        rootPart.CFrame = CFrame.new(Mouse.Hit.Position + Vector3.new(0, 3, 0))
+    elseif intent == "SIT" then humanoid.Sit = true
+    elseif intent == "STAND" then humanoid.Sit = false; humanoid.PlatformStand = false
+    elseif intent == "RAGDOLL" then humanoid.PlatformStand = true
+    elseif intent == "UNRAGDOLL" then humanoid.PlatformStand = false
+    elseif intent == "SPIN" then
+        activeLoop = RunService.Heartbeat:Connect(function()
+            rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(12), 0)
+        end)
+    elseif intent == "PATROL" then
+        local startPos = rootPart.Position
+        local targetPos = startPos + Vector3.new(15, 0, 0)
+        local movingToTarget = true
+        activeLoop = RunService.Heartbeat:Connect(function()
+            local dest = movingToTarget and targetPos or startPos
+            humanoid:MoveTo(dest)
+            if (rootPart.Position - dest).Magnitude < 3 then
+                movingToTarget = not movingToTarget
+            end
+        end)
+    elseif intent == "FLOAT" then
+        local bv = Instance.new("BodyVelocity")
+        bv.Name = "NPC_Float"
+        bv.Velocity = Vector3.new(0, 10, 0)
+        bv.MaxForce = Vector3.new(0, 9e9, 0)
+        bv.Parent = rootPart
+    elseif intent == "UNFLOAT" then
+        local bv = rootPart:FindFirstChild("NPC_Float")
+        if bv then bv:Destroy() end
+    elseif intent == "FLIP" then
+        rootPart.Velocity = Vector3.new(0, 45, 0)
+        for i = 1, 30 do
+            rootPart.CFrame = rootPart.CFrame * CFrame.Angles(math.rad(12), 0, 0)
+            task.wait(0.01)
+        end
+    end
+end
+
+-- -------------------------------------------------------
+-- 7. Chat Listener Hook
+-- -------------------------------------------------------
+local function handleChat(message)
+    if message:sub(1, #PREFIX):lower() == PREFIX:lower() then
+        local command = message:sub(#PREFIX + 1)
+        processCommand(command)
+    end
+end
+
+if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+    TextChatService.OnIncomingMessage = function(message)
+        if message.TextSource and message.TextSource.UserId == LocalPlayer.UserId then
+            handleChat(message.Text)
+        end
+    end
+else
+    LocalPlayer.Chatted:Connect(handleChat)
+end
+
+print("[NPC COMMANDER By ANAN] Script loaded. Type '.show command' in chat.")
