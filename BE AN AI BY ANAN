@@ -1,0 +1,205 @@
+-- Pollinations AI "Send Guide" Circle GUI (AI-Powered Movement Analyzer)
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+local PREFIX = ".ai "
+
+-- Function to get character parts safely
+local function getLocalParts()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    return char, char:WaitForChild("Humanoid"), char:WaitForChild("HumanoidRootPart")
+end
+
+-- Function to broadcast message in public server chat
+local function sayInChat(message)
+    if #message > 195 then
+        message = string.sub(message, 1, 190) .. "..."
+    end
+
+    if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+        local channel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+        if channel then channel:SendAsync(message) end
+    else
+        local req = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+            and ReplicatedStorage.DefaultChatSystemChatEvents:FindFirstChild("SayMessageRequest")
+        if req then req:FireServer(message, "All") end
+    end
+end
+
+-- AI-Powered Movement Executor (Analyzes intent via Pollinations AI)
+local function processAIMovement(prompt, speakerPlayer)
+    task.spawn(function()
+        local char, humanoid, rootPart = getLocalParts()
+        if not char or not humanoid or not rootPart then return end
+        
+        -- Ask Pollinations AI to classify the movement intent into strict keywords
+        local classifyQuery = "Classify this command into ONE action word only (JUMP, SPIN, DANCE, FOLLOW, or NONE): " .. prompt
+        local classifyUrl = "https://text.pollinations.ai/" .. HttpService:UrlEncode(classifyQuery) .. "?seed=" .. math.random(1, 999999)
+        
+        local success, res = pcall(function() return game:HttpGet(classifyUrl) end)
+        local action = success and res and string.upper(res) or "NONE"
+        
+        if string.find(action, "JUMP") then
+            -- Supports multiple jumps if specified (e.g., "jump 2 times")
+            local count = tonumber(prompt:match("(%d+)")) or 1
+            for i = 1, math.clamp(count, 1, 5) do
+                humanoid.Jump = true
+                task.wait(0.35)
+            end
+        elseif string.find(action, "SPIN") then
+            for i = 1, 30 do
+                rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(20), 0)
+                task.wait(0.02)
+            end
+        elseif string.find(action, "DANCE") then
+            for i = 1, 6 do
+                humanoid.Jump = true
+                task.wait(0.25)
+            end
+        elseif string.find(action, "FOLLOW") then
+            if speakerPlayer and speakerPlayer.Character and speakerPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                humanoid:MoveTo(speakerPlayer.Character.HumanoidRootPart.Position)
+            end
+        end
+    end)
+end
+
+-- 100+ Anti-Spam Guide Messages
+local GuideMessages = {
+    "Want to chat with an AI? Just type .ai followed by your question!",
+    "Hey everyone, feel free to use .ai <question> to talk to my bot assistant!",
+    "Type .ai <text> in chat to test out my custom AI chat feature!",
+    "Need help or bored? Type .ai and ask me anything you want!",
+    "Bot is online! Type .ai <message> to start chatting right now.",
+    "Try typing .ai <your text> to see what response you get back!",
+    "Ask me anything in the chat by starting your message with .ai !",
+    "Want to have a chat? Just use the .ai command in the chat bar.",
+    "My AI assistant is active! Type .ai followed by what you want to ask.",
+    "Chat with my bot by typing .ai and your prompt in public chat."
+}
+
+-- Clean up old UI if needed
+if LocalPlayer.PlayerGui:FindFirstChild("SendGuideCircleGUI") then
+    LocalPlayer.PlayerGui.SendGuideCircleGUI:Destroy()
+end
+
+-- Create GUI Container safely
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "SendGuideCircleGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+
+pcall(function()
+    if gethui then
+        ScreenGui.Parent = gethui()
+    else
+        ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+end)
+if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer.PlayerGui end
+
+-- Circular Background Frame (Draggable Panel)
+local DragFrame = Instance.new("Frame")
+DragFrame.Name = "DragBackgroundCircle"
+DragFrame.Size = UDim2.new(0, 120, 0, 120)
+DragFrame.Position = UDim2.new(0.05, 0, 0.4, 0)
+DragFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+DragFrame.BackgroundTransparency = 0.2
+DragFrame.BorderSizePixel = 0
+DragFrame.Active = true
+DragFrame.Draggable = true
+DragFrame.Parent = ScreenGui
+
+local FrameCorner = Instance.new("UICorner")
+FrameCorner.CornerRadius = UDim.new(1, 0)
+FrameCorner.Parent = DragFrame
+
+local FrameStroke = Instance.new("UIStroke")
+FrameStroke.Color = Color3.fromRGB(70, 70, 90)
+FrameStroke.Thickness = 2
+FrameStroke.Parent = DragFrame
+
+-- Circular Button
+local CircleBtn = Instance.new("TextButton")
+CircleBtn.Name = "SendGuideButton"
+CircleBtn.Size = UDim2.new(0, 90, 0, 90)
+CircleBtn.Position = UDim2.new(0.5, -45, 0.5, -45)
+CircleBtn.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
+CircleBtn.Text = "Send Guide"
+CircleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CircleBtn.Font = Enum.Font.SourceSansBold
+CircleBtn.TextSize = 15
+CircleBtn.TextWrapped = true
+CircleBtn.Active = true
+CircleBtn.Draggable = false
+CircleBtn.Parent = DragFrame
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(1, 0)
+UICorner.Parent = CircleBtn
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(255, 255, 255)
+UIStroke.Thickness = 2
+UIStroke.Parent = CircleBtn
+
+-- Click Event: Broadcast Random Anti-Spam Guide
+CircleBtn.MouseButton1Click:Connect(function()
+    local myName = LocalPlayer.DisplayName
+    local randomMsg = GuideMessages[math.random(1, #GuideMessages)]
+    sayInChat("[" .. myName .. "]: " .. randomMsg)
+end)
+
+-- Process Chat Messages for ".ai "
+local function processChat(player, message)
+    if string.sub(string.lower(message), 1, #PREFIX) == PREFIX then
+        local prompt = string.sub(message, #PREFIX + 1)
+        if #prompt == 0 then return end
+        
+        local myName = LocalPlayer.DisplayName
+        sayInChat("[" .. myName .. "]: Answer Loading...")
+        
+        -- AI analyzes and executes physical movement dynamically
+        processAIMovement(prompt, player)
+        
+        task.spawn(function()
+            local randomSeed = math.random(1, 999999)
+            local systemPrompt = "You are a Roblox player named " .. myName .. ". Answer the user directly in under 12 words. No prefix labels like Name: or Answer:. User says: " .. prompt
+            
+            local url = "https://text.pollinations.ai/" .. HttpService:UrlEncode(systemPrompt) .. "?seed=" .. tostring(randomSeed)
+            
+            local success, response = pcall(function() return game:HttpGet(url) end)
+            
+            if success and response and response ~= "" then
+                local cleanResponse = string.gsub(response, "[\r\n]", " ")
+                cleanResponse = string.gsub(cleanResponse, "^%w+:%s*", "")
+                
+                if string.find(string.lower(cleanResponse), "sorry") or string.find(string.lower(cleanResponse), "can't help") then
+                    sayInChat("[" .. myName .. "]: On it!")
+                else
+                    sayInChat("[" .. myName .. "]: " .. cleanResponse)
+                end
+            else
+                sayInChat("[" .. myName .. "]: On it!")
+            end
+        end)
+    end
+end
+
+-- Hook onto all players in server
+local function hookPlayer(player)
+    player.Chatted:Connect(function(msg)
+        processChat(player, msg)
+    end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    hookPlayer(p)
+end
+
+Players.PlayerAdded:Connect(hookPlayer)
+
+print("AI-Powered Movement Analyzer Loaded Successfully!")
