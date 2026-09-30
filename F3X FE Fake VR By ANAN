@@ -1,0 +1,6 @@
+-- F3X FE Fake VR By ANAN
+
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANAN89768/ANAN8976850/refs/heads/main/F3X%20Fe%20All%20Rigs%20Anim%20Filter%20Bypasser%20v6.7"))()
+wait(3)
+loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-FAKE-VR-223797"))()
