@@ -1,4 +1,4 @@
--- (F3X) GAME COPIER V14.9 - BY ANAN
+-- (F3X) GAME COPIER V15.9 - BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("[F3X Copier] Your executor does not support setclipboard()") end
 
@@ -9,6 +9,17 @@ local MarketplaceService = game:GetService("MarketplaceService")
 -- Fetch Real Game Title Using GetProductInfo
 local info = MarketplaceService:GetProductInfo(game.PlaceId)
 local gameName = info and info.Name or "Copied Game"
+
+-- Helper to check if a part belongs to an active player's character
+local function isPlayerPart(part)
+    for _, player in ipairs(Players:GetPlayers()) do
+        local char = player.Character
+        if char and part:IsDescendantOf(char) then
+            return true
+        end
+    end
+    return false
+end
 
 -- Asset ID Parser Helper (Strips rbxassetid://, URLs, and non-digits)
 local function extractAssetId(val)
@@ -31,7 +42,7 @@ end
 
 -- Vector3 Serialization Helper
 local function serializeVector3(vec)
-    if typeof(vec) ~= "Vector3" then return "Vector3.new(0, 0, 0)" end
+    if typeof(vec) ~= "Vector3" then return "Vector3.new(1, 1, 1)" end
     return string.format("Vector3.new(%s, %s, %s)", round(vec.X), round(vec.Y), round(vec.Z))
 end
 
@@ -49,19 +60,10 @@ end
 
 local partsToExport = {}
 
--- Scan Workspace (excluding terrain and player characters)
+-- Scan Workspace (excluding Terrain and active Player characters)
 for _, part in ipairs(workspace:GetDescendants()) do
-    if part:IsA("BasePart") and not part:IsA("Terrain") then
-        local isCharacter = false
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player.Character and part:IsDescendantOf(player.Character) then
-                isCharacter = true
-                break
-            end
-        end
-        if not isCharacter then
-            table.insert(partsToExport, part)
-        end
+    if part:IsA("BasePart") and not part:IsA("Terrain") and not isPlayerPart(part) then
+        table.insert(partsToExport, part)
     end
 end
 
@@ -70,7 +72,6 @@ local function getSurfaces(part)
     local faces = {"Top", "Bottom", "Front", "Back", "Left", "Right"}
     local sTypes = {}
     local hasCustom = false
-    
     for _, face in ipairs(faces) do
         local ok, surf = pcall(function() return part[face .. "Surface"] end)
         if ok and surf and typeof(surf) == "EnumItem" then
@@ -87,24 +88,23 @@ local function getSurfaces(part)
             sTypes[face] = "Enum.SurfaceType.Smooth"
         end
     end
-    
     if not hasCustom then return "nil" end
-    
     return string.format(
         "{Top = %s, Bottom = %s, Front = %s, Back = %s, Left = %s, Right = %s}",
         sTypes.Top, sTypes.Bottom, sTypes.Front, sTypes.Back, sTypes.Left, sTypes.Right
     )
 end
 
--- Texture & Decal Serialization
+-- Texture & Decal Serialization (Scans all 6 faces)
 local function getTextures(part)
     local list = {}
+    local validFaces = {Top = true, Bottom = true, Front = true, Back = true, Left = true, Right = true}
+    
     for _, child in ipairs(part:GetChildren()) do
         if child:IsA("Decal") or child:IsA("Texture") then
             local isTex = child:IsA("Texture")
             local rawTex = child.Texture or ""
             local cleanId = extractAssetId(rawTex)
-            
             if cleanId ~= "" then
                 local r, g, b = 255, 255, 255
                 pcall(function()
@@ -115,34 +115,23 @@ local function getTextures(part)
                         b = math.round(col.B * 255)
                     end
                 end)
-                
                 local faceName = child.Face and child.Face.Name or "Front"
-                local faceEnumStr = "Enum.NormalId." .. (Enum.NormalId[faceName] and faceName or "Front")
+                if not validFaces[faceName] then faceName = "Front" end
+                local faceEnumStr = "Enum.NormalId." .. faceName
                 local trans = round(child.Transparency or 0)
-                
                 local uStuds = 1
                 local vStuds = 1
                 local uOffset = 0
                 local vOffset = 0
-                
                 if isTex then
                     pcall(function() uStuds = round(child.StudsPerTileU or 1) end)
                     pcall(function() vStuds = round(child.StudsPerTileV or 1) end)
                     pcall(function() uOffset = round(child.OffsetStudsU or 0) end)
                     pcall(function() vOffset = round(child.OffsetStudsV or 0) end)
                 end
-                
                 local entry = string.format(
                     '{Type = %s, Face = %s, Texture = %s, Transparency = %s, Color = Color3.fromRGB(%d, %d, %d), StudsPerTileU = %s, StudsPerTileV = %s, OffsetStudsU = %s, OffsetStudsV = %s}',
-                    escapeString(child.ClassName),
-                    faceEnumStr,
-                    escapeString(cleanId),
-                    tostring(trans),
-                    r, g, b,
-                    tostring(uStuds),
-                    tostring(vStuds),
-                    tostring(uOffset),
-                    tostring(vOffset)
+                    escapeString(child.ClassName), faceEnumStr, escapeString(cleanId), tostring(trans), r, g, b, tostring(uStuds), tostring(vStuds), tostring(uOffset), tostring(vOffset)
                 )
                 table.insert(list, entry)
             end
@@ -157,7 +146,7 @@ local function getInfo(part)
     local shape = "Normal"
     local meshStr = "nil"
     local meshInfo = nil
-    
+
     -- 1. Class / Part Shape Identification
     if part:IsA("SpawnLocation") or part.ClassName == "SpawnLocation" then
         shape = "Spawn"
@@ -174,38 +163,50 @@ local function getInfo(part)
     elseif part:IsA("Part") then
         local ok, pShape = pcall(function() return part.Shape end)
         if ok and pShape then
-            if pShape == Enum.PartType.Ball then shape = "Ball"
-            elseif pShape == Enum.PartType.Cylinder then shape = "Cylinder"
-            elseif pShape == Enum.PartType.Wedge then shape = "Wedge"
+            if pShape == Enum.PartType.Ball then
+                shape = "Ball"
+            elseif pShape == Enum.PartType.Cylinder then
+                shape = "Cylinder"
+            elseif pShape == Enum.PartType.Wedge then
+                shape = "Wedge"
             end
         end
     end
+
+    local sm = part:FindFirstChildOfClass("SpecialMesh")
 
     -- 2. Check for MeshPart
     if part:IsA("MeshPart") or part.ClassName == "MeshPart" then
         local meshId = extractAssetId(part.MeshId)
         local textureId = extractAssetId(part.TextureID)
         if meshId ~= "" then
+            local mScale = Vector3.new(1, 1, 1)
+            if sm then
+                mScale = sm.Scale
+            else
+                local ok, meshSize = pcall(function() return part.MeshSize end)
+                if ok and typeof(meshSize) == "Vector3" and meshSize.X > 0 and meshSize.Y > 0 and meshSize.Z > 0 then
+                    mScale = Vector3.new(part.Size.X / meshSize.X, part.Size.Y / meshSize.Y, part.Size.Z / meshSize.Z)
+                end
+            end
             meshInfo = {
                 MeshType = "FileMesh",
                 MeshId = meshId,
                 TextureId = textureId,
-                Scale = Vector3.new(1, 1, 1),
-                Offset = Vector3.new(0, 0, 0)
+                Scale = mScale,
+                Offset = sm and sm.Offset or Vector3.new(0, 0, 0)
             }
         end
     end
 
-    -- 3. Check for SpecialMesh (Custom OR Built-In)
-    local sm = part:FindFirstChildOfClass("SpecialMesh")
+    -- 3. Check for SpecialMesh
     if sm then
         local meshId = extractAssetId(sm.MeshId)
         local textureId = extractAssetId(sm.TextureId)
-        local mScale = sm.Scale or Vector3.new(1, 1, 1)
         local mOffset = sm.Offset or Vector3.new(0, 0, 0)
+        local mScale = sm.Scale or Vector3.new(1, 1, 1)
         local mTypeName = "FileMesh"
         pcall(function() mTypeName = sm.MeshType.Name end)
-        
         if mTypeName ~= "FileMesh" or meshId ~= "" then
             meshInfo = {
                 MeshType = mTypeName,
@@ -216,16 +217,12 @@ local function getInfo(part)
             }
         end
     end
-    
+
     if meshInfo then
         local mTypeEnum = "Enum.MeshType." .. (Enum.MeshType[meshInfo.MeshType] and meshInfo.MeshType or "FileMesh")
         meshStr = string.format(
             '{MeshType = %s, MeshId = %s, TextureId = %s, Scale = %s, Offset = %s}',
-            mTypeEnum,
-            escapeString(meshInfo.MeshId),
-            escapeString(meshInfo.TextureId),
-            serializeVector3(meshInfo.Scale),
-            serializeVector3(meshInfo.Offset)
+            mTypeEnum, escapeString(meshInfo.MeshId), escapeString(meshInfo.TextureId), serializeVector3(meshInfo.Scale), serializeVector3(meshInfo.Offset)
         )
     end
 
@@ -244,9 +241,9 @@ for _, part in ipairs(partsToExport) do
     local canCollide = part.CanCollide and "true" or "false"
     local texStr = getTextures(part)
     local surfStr = getSurfaces(part)
-    
+
     local line = string.format(
-        '  {%q, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s}',
+        '    {%q, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s}',
         shape, cfStr, sizeStr, colorStr, matStr, tostring(transNum), anch, canCollide, texStr, meshStr, surfStr
     )
     table.insert(serializedLines, line)
@@ -261,9 +258,21 @@ local function setCharacterAnchored(state)
     local char = LocalPlayer.Character
     if char then
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then pcall(function() part.Anchored = state end) end
+            if part:IsA("BasePart") then
+                pcall(function() part.Anchored = state end)
+            end
         end
     end
+end
+
+local function isPlayerPart(part)
+    for _, player in ipairs(Players:GetPlayers()) do
+        local char = player.Character
+        if char and part:IsDescendantOf(char) then
+            return true
+        end
+    end
+    return false
 end
 
 local function getF3X()
@@ -283,7 +292,6 @@ if not tool then error("[F3X Importer] F3X / Building Tools not found in Charact
 
 local serverEndpoint = tool:FindFirstChild("ServerEndpoint", true) or tool:FindFirstChild("SyncAPI", true)
 if not serverEndpoint then error("[F3X Importer] ServerEndpoint / SyncAPI not found in tool!") end
-
 if serverEndpoint:IsA("Folder") or serverEndpoint:IsA("ModuleScript") then
     serverEndpoint = serverEndpoint:FindFirstChild("ServerEndpoint", true) or serverEndpoint
 end
@@ -306,20 +314,10 @@ end
 
 task.spawn(function()
     setCharacterAnchored(true)
-
     local partsToRemove = {}
     for _, part in ipairs(workspace:GetDescendants()) do
-        if part:IsA("BasePart") and not part:IsA("Terrain") then
-            local isCharacter = false
-            for _, player in ipairs(Players:GetPlayers()) do
-                if player.Character and part:IsDescendantOf(player.Character) then
-                    isCharacter = true
-                    break
-                end
-            end
-            if not isCharacter then
-                table.insert(partsToRemove, part)
-            end
+        if part:IsA("BasePart") and not part:IsA("Terrain") and not isPlayerPart(part) then
+            table.insert(partsToRemove, part)
         end
     end
 
@@ -374,24 +372,18 @@ task.spawn(function()
             table.insert(collisionBatch, {Part = p, CanCollide = canCollide})
 
             if type(surfData) == "table" then
-                table.insert(surfaceBatch, {
-                    Part = p,
-                    Surfaces = surfData
-                })
+                table.insert(surfaceBatch, { Part = p, Surfaces = surfData })
             end
 
-            -- Built-In & Custom Mesh Handler
             if type(meshData) == "table" then
                 local mType = meshData.MeshType or Enum.MeshType.FileMesh
                 local hasCustomId = (meshData.MeshId and tostring(meshData.MeshId) ~= "")
                 local isBuiltInMesh = (mType ~= Enum.MeshType.FileMesh)
-
                 if hasCustomId or isBuiltInMesh then
                     table.insert(meshCreateBatch, {Part = p})
-                    
                     local formattedMeshId = hasCustomId and ("rbxassetid://" .. tostring(meshData.MeshId)) or ""
                     local formattedTexId = (meshData.TextureId and tostring(meshData.TextureId) ~= "") and ("rbxassetid://" .. tostring(meshData.TextureId)) or ""
-
+                    
                     table.insert(meshSyncBatch, {
                         Part = p,
                         MeshType = mType,
@@ -408,13 +400,11 @@ task.spawn(function()
                     if t.Texture and tostring(t.Texture) ~= "" then
                         local texType = t.Type or "Decal"
                         local faceEnum = t.Face or Enum.NormalId.Front
-                        
                         table.insert(textureCreateBatch, {
                             Part = p,
                             TextureType = texType,
                             Face = faceEnum
                         })
-                        
                         local syncData = {
                             Part = p,
                             TextureType = texType,
@@ -446,12 +436,10 @@ task.spawn(function()
     if #surfaceBatch > 0 then
         sendInChunks("SyncSurface", surfaceBatch, 1000)
     end
-
     if #meshCreateBatch > 0 then
         sendInChunks("CreateMeshes", meshCreateBatch, 1000)
         sendInChunks("SyncMesh", meshSyncBatch, 1000)
     end
-
     if #textureCreateBatch > 0 then
         sendInChunks("CreateTextures", textureCreateBatch, 1000)
         sendInChunks("SyncTexture", textureSyncBatch, 1000)
@@ -468,5 +456,5 @@ if not isValid then
     error("[F3X Copier] Generated script syntax validation failed: " .. tostring(loadErr))
 else
     setclipboard(generatedScript)
-    print(string.format("[F3X Copier V14.9] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
+    print(string.format("[F3X Copier V15.9] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
 end
