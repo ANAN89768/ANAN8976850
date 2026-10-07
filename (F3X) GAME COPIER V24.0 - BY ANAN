@@ -1,4 +1,4 @@
--- (F3X) GAME COPIER V15.9 - BY ANAN
+-- (F3X) GAME COPIER V24.0 - BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("[F3X Copier] Your executor does not support setclipboard()") end
 
@@ -21,7 +21,15 @@ local function isPlayerPart(part)
     return false
 end
 
--- Asset ID Parser Helper (Strips rbxassetid://, URLs, and non-digits)
+-- Helper to verify if an instance is a valid part (Includes MeshParts; Excludes Terrain, Unions, Negates, and Character Parts)
+local function isValidPart(part)
+    if not part:IsA("BasePart") or part:IsA("Terrain") then return false end
+    if part:IsA("UnionOperation") or part:IsA("NegateOperation") then return false end
+    if isPlayerPart(part) then return false end
+    return true
+end
+
+-- Asset ID Parser Helper
 local function extractAssetId(val)
     if not val then return "" end
     local str = tostring(val)
@@ -60,9 +68,9 @@ end
 
 local partsToExport = {}
 
--- Scan Workspace (excluding Terrain and active Player characters)
+-- Scan Workspace for valid parts
 for _, part in ipairs(workspace:GetDescendants()) do
-    if part:IsA("BasePart") and not part:IsA("Terrain") and not isPlayerPart(part) then
+    if isValidPart(part) then
         table.insert(partsToExport, part)
     end
 end
@@ -95,12 +103,19 @@ local function getSurfaces(part)
     )
 end
 
--- Texture & Decal Serialization (Scans all 6 faces)
+-- Multi-Side Texture & Decal Serialization (Detects Every Side/Face)
 local function getTextures(part)
     local list = {}
-    local validFaces = {Top = true, Bottom = true, Front = true, Back = true, Left = true, Right = true}
+    local faceMapping = {
+        Top = "Enum.NormalId.Top",
+        Bottom = "Enum.NormalId.Bottom",
+        Front = "Enum.NormalId.Front",
+        Back = "Enum.NormalId.Back",
+        Left = "Enum.NormalId.Left",
+        Right = "Enum.NormalId.Right"
+    }
     
-    for _, child in ipairs(part:GetChildren()) do
+    for _, child in ipairs(part:GetDescendants()) do
         if child:IsA("Decal") or child:IsA("Texture") then
             local isTex = child:IsA("Texture")
             local rawTex = child.Texture or ""
@@ -116,13 +131,9 @@ local function getTextures(part)
                     end
                 end)
                 local faceName = child.Face and child.Face.Name or "Front"
-                if not validFaces[faceName] then faceName = "Front" end
-                local faceEnumStr = "Enum.NormalId." .. faceName
+                local faceEnumStr = faceMapping[faceName] or "Enum.NormalId.Front"
                 local trans = round(child.Transparency or 0)
-                local uStuds = 1
-                local vStuds = 1
-                local uOffset = 0
-                local vOffset = 0
+                local uStuds, vStuds, uOffset, vOffset = 1, 1, 0, 0
                 if isTex then
                     pcall(function() uStuds = round(child.StudsPerTileU or 1) end)
                     pcall(function() vStuds = round(child.StudsPerTileV or 1) end)
@@ -141,48 +152,24 @@ local function getTextures(part)
     return "{" .. table.concat(list, ", ") .. "}"
 end
 
--- Mesh & Shape Detector
-local function getInfo(part)
-    local shape = "Normal"
-    local meshStr = "nil"
+-- Comprehensive Mesh Data Extractor with Explicit X <-> Y Swap for Cylinder Meshes
+local function getMeshInfo(part)
     local meshInfo = nil
 
-    -- 1. Class / Part Shape Identification
-    if part:IsA("SpawnLocation") or part.ClassName == "SpawnLocation" then
-        shape = "Spawn"
-    elseif part:IsA("Seat") or part.ClassName == "Seat" then
-        shape = "Seat"
-    elseif part:IsA("VehicleSeat") or part.ClassName == "VehicleSeat" then
-        shape = "VehicleSeat"
-    elseif part:IsA("WedgePart") or part.ClassName == "WedgePart" then
-        shape = "Wedge"
-    elseif part:IsA("CornerWedgePart") or part.ClassName == "CornerWedgePart" then
-        shape = "Corner"
-    elseif part:IsA("TrussPart") or part.ClassName == "TrussPart" then
-        shape = "Truss"
-    elseif part:IsA("Part") then
-        local ok, pShape = pcall(function() return part.Shape end)
-        if ok and pShape then
-            if pShape == Enum.PartType.Ball then
-                shape = "Ball"
-            elseif pShape == Enum.PartType.Cylinder then
-                shape = "Cylinder"
-            elseif pShape == Enum.PartType.Wedge then
-                shape = "Wedge"
-            end
-        end
-    end
-
     local sm = part:FindFirstChildOfClass("SpecialMesh")
+    local bm = part:FindFirstChildOfClass("BlockMesh")
+    local cm = part:FindFirstChildOfClass("CylinderMesh")
+    local charM = part:FindFirstChildOfClass("CharacterMesh")
 
-    -- 2. Check for MeshPart
-    if part:IsA("MeshPart") or part.ClassName == "MeshPart" then
+    if part:IsA("MeshPart") then
         local meshId = extractAssetId(part.MeshId)
         local textureId = extractAssetId(part.TextureID)
         if meshId ~= "" then
             local mScale = Vector3.new(1, 1, 1)
+            local mOffset = Vector3.new(0, 0, 0)
             if sm then
-                mScale = sm.Scale
+                mScale = sm.Scale or Vector3.new(1, 1, 1)
+                mOffset = sm.Offset or Vector3.new(0, 0, 0)
             else
                 local ok, meshSize = pcall(function() return part.MeshSize end)
                 if ok and typeof(meshSize) == "Vector3" and meshSize.X > 0 and meshSize.Y > 0 and meshSize.Z > 0 then
@@ -194,45 +181,122 @@ local function getInfo(part)
                 MeshId = meshId,
                 TextureId = textureId,
                 Scale = mScale,
-                Offset = sm and sm.Offset or Vector3.new(0, 0, 0)
+                Offset = mOffset
             }
         end
-    end
-
-    -- 3. Check for SpecialMesh
-    if sm then
+    elseif sm then
         local meshId = extractAssetId(sm.MeshId)
         local textureId = extractAssetId(sm.TextureId)
         local mOffset = sm.Offset or Vector3.new(0, 0, 0)
         local mScale = sm.Scale or Vector3.new(1, 1, 1)
         local mTypeName = "FileMesh"
         pcall(function() mTypeName = sm.MeshType.Name end)
-        if mTypeName ~= "FileMesh" or meshId ~= "" then
-            meshInfo = {
-                MeshType = mTypeName,
-                MeshId = meshId,
-                TextureId = textureId,
-                Scale = mScale,
-                Offset = mOffset
-            }
+        
+        -- Swap X and Y axes for Cylinder meshes
+        if mTypeName == "Cylinder" then
+            mScale = Vector3.new(mScale.Y, mScale.X, mScale.Z)
+            mOffset = Vector3.new(mOffset.Y, mOffset.X, mOffset.Z)
         end
+
+        meshInfo = {
+            MeshType = mTypeName,
+            MeshId = meshId,
+            TextureId = textureId,
+            Scale = mScale,
+            Offset = mOffset
+        }
+    elseif bm then
+        local mOffset = bm.Offset or Vector3.new(0, 0, 0)
+        local mScale = bm.Scale or Vector3.new(1, 1, 1)
+        meshInfo = {
+            MeshType = "Brick",
+            MeshId = "",
+            TextureId = "",
+            Scale = mScale,
+            Offset = mOffset
+        }
+    elseif cm then
+        local mOffset = cm.Offset or Vector3.new(0, 0, 0)
+        local mScale = cm.Scale or Vector3.new(1, 1, 1)
+        -- Swap X and Y axes for CylinderMesh
+        mScale = Vector3.new(mScale.Y, mScale.X, mScale.Z)
+        mOffset = Vector3.new(mOffset.Y, mOffset.X, mOffset.Z)
+        meshInfo = {
+            MeshType = "Cylinder",
+            MeshId = "",
+            TextureId = "",
+            Scale = mScale,
+            Offset = mOffset
+        }
+    elseif charM then
+        local meshId = extractAssetId(charM.MeshId)
+        local baseTex = extractAssetId(charM.BaseTextureId or charM.OverlayTextureId)
+        meshInfo = {
+            MeshType = "FileMesh",
+            MeshId = meshId,
+            TextureId = baseTex,
+            Scale = Vector3.new(1, 1, 1),
+            Offset = Vector3.new(0, 0, 0)
+        }
     end
 
     if meshInfo then
         local mTypeEnum = "Enum.MeshType." .. (Enum.MeshType[meshInfo.MeshType] and meshInfo.MeshType or "FileMesh")
-        meshStr = string.format(
+        return string.format(
             '{MeshType = %s, MeshId = %s, TextureId = %s, Scale = %s, Offset = %s}',
             mTypeEnum, escapeString(meshInfo.MeshId), escapeString(meshInfo.TextureId), serializeVector3(meshInfo.Scale), serializeVector3(meshInfo.Offset)
         )
     end
+    return "nil"
+end
 
-    return shape, meshStr
+-- ClassName and Shape Mapping Function
+local function getF3XShape(part)
+    local className = part.ClassName
+
+    if className == "MeshPart" then
+        return "Normal"
+    elseif className == "WedgePart" then
+        return "Wedge"
+    elseif className == "CornerWedgePart" then
+        return "Corner"
+    elseif className == "TrussPart" then
+        return "Truss"
+    elseif className == "Seat" then
+        return "Seat"
+    elseif className == "VehicleSeat" then
+        return "VehicleSeat"
+    elseif className == "SpawnLocation" then
+        return "Spawn"
+    elseif part:IsA("Part") then
+        local pShape = part.Shape
+        if pShape == Enum.PartType.Ball then
+            return "Ball"
+        elseif pShape == Enum.PartType.Cylinder then
+            return "Cylinder"
+        elseif pShape == Enum.PartType.Wedge then
+            return "Wedge"
+        elseif pShape == Enum.PartType.CornerWedge then
+            return "Corner"
+        end
+    end
+
+    return "Normal"
 end
 
 local serializedLines = {}
 for _, part in ipairs(partsToExport) do
-    local shape, meshStr = getInfo(part)
-    local cfStr = serializeCFrame(part.CFrame)
+    local shape = getF3XShape(part)
+    local partCF = part.CFrame
+
+    -- Rotate CFrame to align with swapped X <-> Y cylinder axes
+    local cm = part:FindFirstChildOfClass("CylinderMesh")
+    local sm = part:FindFirstChildOfClass("SpecialMesh")
+    if cm or (sm and sm.MeshType == Enum.MeshType.Cylinder) then
+        partCF = partCF * CFrame.Angles(0, 0, math.rad(90))
+    end
+
+    local cfStr = serializeCFrame(partCF)
     local sizeStr = serializeVector3(part.Size)
     local colorStr = serializeColor3(part.Color)
     local matStr = "Enum.Material." .. part.Material.Name
@@ -240,6 +304,7 @@ for _, part in ipairs(partsToExport) do
     local anch = "true"
     local canCollide = part.CanCollide and "true" or "false"
     local texStr = getTextures(part)
+    local meshStr = getMeshInfo(part)
     local surfStr = getSurfaces(part)
 
     local line = string.format(
@@ -273,6 +338,13 @@ local function isPlayerPart(part)
         end
     end
     return false
+end
+
+local function isValidPart(part)
+    if not part:IsA("BasePart") or part:IsA("Terrain") then return false end
+    if part:IsA("UnionOperation") or part:IsA("NegateOperation") then return false end
+    if isPlayerPart(part) then return false end
+    return true
 end
 
 local function getF3X()
@@ -316,7 +388,7 @@ task.spawn(function()
     setCharacterAnchored(true)
     local partsToRemove = {}
     for _, part in ipairs(workspace:GetDescendants()) do
-        if part:IsA("BasePart") and not part:IsA("Terrain") and not isPlayerPart(part) then
+        if isValidPart(part) then
             table.insert(partsToRemove, part)
         end
     end
@@ -456,5 +528,5 @@ if not isValid then
     error("[F3X Copier] Generated script syntax validation failed: " .. tostring(loadErr))
 else
     setclipboard(generatedScript)
-    print(string.format("[F3X Copier V15.9] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
+    print(string.format("[F3X Copier V24.0] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
 end
