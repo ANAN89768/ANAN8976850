@@ -152,7 +152,7 @@ local function getTextures(part)
     return "{" .. table.concat(list, ", ") .. "}"
 end
 
--- Comprehensive Mesh Data Extractor with Explicit X <-> Y Swap for Cylinder Meshes
+-- Comprehensive Mesh Data Extractor with Left-to-Right Cylinder Axis Correction
 local function getMeshInfo(part)
     local meshInfo = nil
 
@@ -192,10 +192,8 @@ local function getMeshInfo(part)
         local mTypeName = "FileMesh"
         pcall(function() mTypeName = sm.MeshType.Name end)
         
-        -- Swap X and Y axes for Cylinder meshes
         if mTypeName == "Cylinder" then
             mScale = Vector3.new(mScale.Y, mScale.X, mScale.Z)
-            mOffset = Vector3.new(mOffset.Y, mOffset.X, mOffset.Z)
         end
 
         meshInfo = {
@@ -218,9 +216,7 @@ local function getMeshInfo(part)
     elseif cm then
         local mOffset = cm.Offset or Vector3.new(0, 0, 0)
         local mScale = cm.Scale or Vector3.new(1, 1, 1)
-        -- Swap X and Y axes for CylinderMesh
         mScale = Vector3.new(mScale.Y, mScale.X, mScale.Z)
-        mOffset = Vector3.new(mOffset.Y, mOffset.X, mOffset.Z)
         meshInfo = {
             MeshType = "Cylinder",
             MeshId = "",
@@ -288,16 +284,18 @@ local serializedLines = {}
 for _, part in ipairs(partsToExport) do
     local shape = getF3XShape(part)
     local partCF = part.CFrame
+    local partSize = part.Size
 
-    -- Rotate CFrame to align with swapped X <-> Y cylinder axes
+    -- Check if part contains a CylinderMesh or SpecialMesh Cylinder and apply Left-to-Right orientation + size swap (X <-> Y)
     local cm = part:FindFirstChildOfClass("CylinderMesh")
     local sm = part:FindFirstChildOfClass("SpecialMesh")
     if cm or (sm and sm.MeshType == Enum.MeshType.Cylinder) then
         partCF = partCF * CFrame.Angles(0, 0, math.rad(90))
+        partSize = Vector3.new(part.Size.Y, part.Size.X, part.Size.Z)
     end
 
     local cfStr = serializeCFrame(partCF)
-    local sizeStr = serializeVector3(part.Size)
+    local sizeStr = serializeVector3(partSize)
     local colorStr = serializeColor3(part.Color)
     local matStr = "Enum.Material." .. part.Material.Name
     local transNum = round(math.clamp(part.Transparency, 0, 1))
