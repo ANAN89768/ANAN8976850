@@ -1,4 +1,4 @@
--- (F3X) GAME COPIER V24.0 - BY ANAN
+-- (F3X) GAME COPIER V24.0 (INSTANT BUILD EDITION) - BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("[F3X Copier] Your executor does not support setclipboard()") end
 
@@ -286,7 +286,7 @@ for _, part in ipairs(partsToExport) do
     local partCF = part.CFrame
     local partSize = part.Size
 
-    -- Check if part contains a CylinderMesh or SpecialMesh Cylinder and apply Left-to-Right orientation + size swap (X <-> Y)
+    -- Check for CylinderMesh / SpecialMesh Cylinder for axis correction
     local cm = part:FindFirstChildOfClass("CylinderMesh")
     local sm = part:FindFirstChildOfClass("SpecialMesh")
     if cm or (sm and sm.MeshType == Enum.MeshType.Cylinder) then
@@ -372,13 +372,18 @@ local mapData = {
 }
 
 local function sendInChunks(remoteMethod, dataArray, chunkSize)
-    chunkSize = chunkSize or 1000
-    for i = 1, #dataArray, chunkSize do
-        local chunk = table.create(math.min(chunkSize, #dataArray - i + 1))
-        for j = i, math.min(i + chunkSize - 1, #dataArray) do
+    chunkSize = chunkSize or 2000
+    local total = #dataArray
+    if total == 0 then return end
+    
+    for i = 1, total, chunkSize do
+        local chunk = table.create(math.min(chunkSize, total - i + 1))
+        for j = i, math.min(i + chunkSize - 1, total) do
             table.insert(chunk, dataArray[j])
         end
-        pcall(function() serverEndpoint:InvokeServer(remoteMethod, chunk) end)
+        task.spawn(function()
+            pcall(function() serverEndpoint:InvokeServer(remoteMethod, chunk) end)
+        end)
     end
 end
 
@@ -392,14 +397,14 @@ task.spawn(function()
     end
 
     if #partsToRemove > 0 then
-        sendInChunks("Remove", partsToRemove, 1000)
+        sendInChunks("Remove", partsToRemove, 2000)
     end
 
     local totalParts = #mapData
     local createdParts = table.create(totalParts)
     local failedParts = 0
     local completedWorkers = 0
-    local WORKERS = 30
+    local WORKERS = 100
 
     for workerId = 1, WORKERS do
         task.spawn(function()
@@ -496,27 +501,28 @@ task.spawn(function()
         end
     end
 
-    sendInChunks("SyncResize", resizeBatch, 1000)
-    sendInChunks("SyncColor", colorBatch, 1000)
-    sendInChunks("SyncMaterial", materialBatch, 1000)
-    sendInChunks("SyncTransparency", transBatch, 1000)
-    sendInChunks("SyncAnchor", anchorBatch, 1000)
-    sendInChunks("SyncCollision", collisionBatch, 1000)
+    -- Concurrent Non-Blocking Flushes
+    sendInChunks("SyncResize", resizeBatch, 2000)
+    sendInChunks("SyncColor", colorBatch, 2000)
+    sendInChunks("SyncMaterial", materialBatch, 2000)
+    sendInChunks("SyncTransparency", transBatch, 2000)
+    sendInChunks("SyncAnchor", anchorBatch, 2000)
+    sendInChunks("SyncCollision", collisionBatch, 2000)
 
     if #surfaceBatch > 0 then
-        sendInChunks("SyncSurface", surfaceBatch, 1000)
+        sendInChunks("SyncSurface", surfaceBatch, 2000)
     end
     if #meshCreateBatch > 0 then
-        sendInChunks("CreateMeshes", meshCreateBatch, 1000)
-        sendInChunks("SyncMesh", meshSyncBatch, 1000)
+        sendInChunks("CreateMeshes", meshCreateBatch, 2000)
+        sendInChunks("SyncMesh", meshSyncBatch, 2000)
     end
     if #textureCreateBatch > 0 then
-        sendInChunks("CreateTextures", textureCreateBatch, 1000)
-        sendInChunks("SyncTexture", textureSyncBatch, 1000)
+        sendInChunks("CreateTextures", textureCreateBatch, 2000)
+        sendInChunks("SyncTexture", textureSyncBatch, 2000)
     end
 
     setCharacterAnchored(false)
-    print(string.format("[F3X Importer] Import finished! Created %d parts.", totalParts - failedParts))
+    print(string.format("[F3X Importer] Finished in ultra speed! Created %d parts.", totalParts - failedParts))
 end)
 ]]
 
@@ -526,5 +532,5 @@ if not isValid then
     error("[F3X Copier] Generated script syntax validation failed: " .. tostring(loadErr))
 else
     setclipboard(generatedScript)
-    print(string.format("[F3X Copier V24.0] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
+    print(string.format("[F3X Copier V24.0 Ultra] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
 end
