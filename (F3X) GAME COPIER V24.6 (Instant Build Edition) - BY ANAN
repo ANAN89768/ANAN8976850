@@ -1,4 +1,4 @@
--- (F3X) GAME COPIER V24.0 (INSTANT BUILD EDITION) - BY ANAN
+-- (F3X) GAME COPIER V24.6 (Instant Build Edition) - BY ANAN
 local setclipboard = setclipboard or toclipboard or set_clipboard
 if not setclipboard then error("[F3X Copier] Your executor does not support setclipboard()") end
 
@@ -21,7 +21,7 @@ local function isPlayerPart(part)
     return false
 end
 
--- Helper to verify if an instance is a valid part (Includes MeshParts; Excludes Terrain, Unions, Negates, and Character Parts)
+-- Helper to verify if an instance is a valid part
 local function isValidPart(part)
     if not part:IsA("BasePart") or part:IsA("Terrain") then return false end
     if part:IsA("UnionOperation") or part:IsA("NegateOperation") then return false end
@@ -103,7 +103,7 @@ local function getSurfaces(part)
     )
 end
 
--- Multi-Side Texture & Decal Serialization (Detects Every Side/Face)
+-- Multi-Side Texture & Decal Serialization
 local function getTextures(part)
     local list = {}
     local faceMapping = {
@@ -152,7 +152,7 @@ local function getTextures(part)
     return "{" .. table.concat(list, ", ") .. "}"
 end
 
--- Comprehensive Mesh Data Extractor with Left-to-Right Cylinder Axis Correction
+-- Comprehensive Mesh Data Extractor
 local function getMeshInfo(part)
     local meshInfo = nil
 
@@ -286,7 +286,7 @@ for _, part in ipairs(partsToExport) do
     local partCF = part.CFrame
     local partSize = part.Size
 
-    -- Check for CylinderMesh / SpecialMesh Cylinder for axis correction
+    -- CylinderMesh / SpecialMesh Cylinder Axis Correction
     local cm = part:FindFirstChildOfClass("CylinderMesh")
     local sm = part:FindFirstChildOfClass("SpecialMesh")
     if cm or (sm and sm.MeshType == Enum.MeshType.Cylinder) then
@@ -371,14 +371,12 @@ local mapData = {
 
 }
 
-local function sendInChunks(remoteMethod, dataArray, chunkSize)
-    chunkSize = chunkSize or 2000
-    local total = #dataArray
-    if total == 0 then return end
-    
-    for i = 1, total, chunkSize do
-        local chunk = table.create(math.min(chunkSize, total - i + 1))
-        for j = i, math.min(i + chunkSize - 1, total) do
+local function sendFastChunks(remoteMethod, dataArray)
+    if #dataArray == 0 then return end
+    local chunkSize = 3000
+    for i = 1, #dataArray, chunkSize do
+        local chunk = table.create(math.min(chunkSize, #dataArray - i + 1))
+        for j = i, math.min(i + chunkSize - 1, #dataArray) do
             table.insert(chunk, dataArray[j])
         end
         task.spawn(function()
@@ -389,140 +387,133 @@ end
 
 task.spawn(function()
     setCharacterAnchored(true)
+
+    -- Step 1: Wipe Workspace Instantly
     local partsToRemove = {}
     for _, part in ipairs(workspace:GetDescendants()) do
         if isValidPart(part) then
             table.insert(partsToRemove, part)
         end
     end
-
     if #partsToRemove > 0 then
-        sendInChunks("Remove", partsToRemove, 2000)
+        sendFastChunks("Remove", partsToRemove)
     end
 
     local totalParts = #mapData
-    local createdParts = table.create(totalParts)
-    local failedParts = 0
-    local completedWorkers = 0
-    local WORKERS = 100
+    if totalParts == 0 then
+        setCharacterAnchored(false)
+        return
+    end
+
+    -- Step 2: Pipeline Execution via 200 High-Speed Worker Threads
+    local WORKERS = 200
+    local activeWorkers = WORKERS
 
     for workerId = 1, WORKERS do
         task.spawn(function()
+            local resizeBatch, colorBatch, materialBatch, transBatch = {}, {}, {}, {}
+            local anchorBatch, collisionBatch = {}, {}
+            local meshCreateBatch, meshSyncBatch = {}, {}
+            local textureCreateBatch, textureSyncBatch = {}, {}
+            local surfaceBatch = {}
+
             for i = workerId, totalParts, WORKERS do
-                local data = mapData[i]
-                if data then
-                    local shape, cf = data[1], data[2]
-                    local ok, part = pcall(function() return serverEndpoint:InvokeServer("CreatePart", shape, cf, workspace) end)
-                    if ok and part then
-                        createdParts[i] = {Part = part, Data = data}
-                    else
-                        failedParts = failedParts + 1
+                local d = mapData[i]
+                if d then
+                    local shape, cf, size, color, mat, trans, anch, canCollide, textures, meshData, surfData = d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]
+                    local ok, p = pcall(function() return serverEndpoint:InvokeServer("CreatePart", shape, cf, workspace) end)
+                    if ok and p then
+                        local numTrans = tonumber(trans) or 0
+                        table.insert(resizeBatch, {Part = p, Size = size, CFrame = cf})
+                        table.insert(colorBatch, {Part = p, Color = color})
+                        table.insert(materialBatch, {Part = p, Material = mat, Transparency = numTrans})
+                        table.insert(transBatch, {Part = p, Transparency = numTrans})
+                        table.insert(anchorBatch, {Part = p, Anchored = true})
+                        table.insert(collisionBatch, {Part = p, CanCollide = canCollide})
+
+                        if type(surfData) == "table" then
+                            table.insert(surfaceBatch, { Part = p, Surfaces = surfData })
+                        end
+
+                        if type(meshData) == "table" then
+                            local mType = meshData.MeshType or Enum.MeshType.FileMesh
+                            local hasCustomId = (meshData.MeshId and tostring(meshData.MeshId) ~= "")
+                            local isBuiltInMesh = (mType ~= Enum.MeshType.FileMesh)
+                            if hasCustomId or isBuiltInMesh then
+                                table.insert(meshCreateBatch, {Part = p})
+                                local formattedMeshId = hasCustomId and ("rbxassetid://" .. tostring(meshData.MeshId)) or ""
+                                local formattedTexId = (meshData.TextureId and tostring(meshData.TextureId) ~= "") and ("rbxassetid://" .. tostring(meshData.TextureId)) or ""
+                                
+                                table.insert(meshSyncBatch, {
+                                    Part = p,
+                                    MeshType = mType,
+                                    MeshId = formattedMeshId,
+                                    TextureId = formattedTexId,
+                                    Scale = typeof(meshData.Scale) == "Vector3" and meshData.Scale or Vector3.new(1, 1, 1),
+                                    Offset = typeof(meshData.Offset) == "Vector3" and meshData.Offset or Vector3.new(0, 0, 0)
+                                })
+                            end
+                        end
+
+                        if type(textures) == "table" then
+                            for _, t in ipairs(textures) do
+                                if t.Texture and tostring(t.Texture) ~= "" then
+                                    local texType = t.Type or "Decal"
+                                    local faceEnum = t.Face or Enum.NormalId.Front
+                                    table.insert(textureCreateBatch, {
+                                        Part = p,
+                                        TextureType = texType,
+                                        Face = faceEnum
+                                    })
+                                    local syncData = {
+                                        Part = p,
+                                        TextureType = texType,
+                                        Face = faceEnum,
+                                        Texture = "rbxassetid://" .. tostring(t.Texture),
+                                        Transparency = tonumber(t.Transparency) or 0,
+                                        Color = t.Color or Color3.fromRGB(255, 255, 255)
+                                    }
+                                    if texType == "Texture" then
+                                        syncData.StudsPerTileU = tonumber(t.StudsPerTileU) or 1
+                                        syncData.StudsPerTileV = tonumber(t.StudsPerTileV) or 1
+                                        syncData.OffsetStudsU = tonumber(t.OffsetStudsU) or 0
+                                        syncData.OffsetStudsV = tonumber(t.OffsetStudsV) or 0
+                                    end
+                                    table.insert(textureSyncBatch, syncData)
+                                end
+                            end
+                        end
                     end
                 end
             end
-            completedWorkers = completedWorkers + 1
+
+            -- Step 3: Instant Localized Pipeline Flush per Worker
+            if #resizeBatch > 0 then
+                sendFastChunks("SyncResize", resizeBatch)
+                sendFastChunks("SyncColor", colorBatch)
+                sendFastChunks("SyncMaterial", materialBatch)
+                sendFastChunks("SyncTransparency", transBatch)
+                sendFastChunks("SyncAnchor", anchorBatch)
+                sendFastChunks("SyncCollision", collisionBatch)
+            end
+            if #surfaceBatch > 0 then sendFastChunks("SyncSurface", surfaceBatch) end
+            if #meshCreateBatch > 0 then
+                sendFastChunks("CreateMeshes", meshCreateBatch)
+                sendFastChunks("SyncMesh", meshSyncBatch)
+            end
+            if #textureCreateBatch > 0 then
+                sendFastChunks("CreateTextures", textureCreateBatch)
+                sendFastChunks("SyncTexture", textureSyncBatch)
+            end
+
+            activeWorkers = activeWorkers - 1
         end)
     end
 
-    repeat task.wait() until completedWorkers >= WORKERS
-
-    local resizeBatch, colorBatch, materialBatch, transBatch = {}, {}, {}, {}
-    local anchorBatch, collisionBatch = {}, {}
-    local meshCreateBatch, meshSyncBatch = {}, {}
-    local textureCreateBatch, textureSyncBatch = {}, {}
-    local surfaceBatch = {}
-
-    for i = 1, totalParts do
-        local item = createdParts[i]
-        if item and item.Part and item.Data then
-            local p, d = item.Part, item.Data
-            local shape, cf, size, color, mat, trans, anch, canCollide, textures, meshData, surfData = d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]
-            local numTrans = tonumber(trans) or 0
-
-            table.insert(resizeBatch, {Part = p, Size = size, CFrame = cf})
-            table.insert(colorBatch, {Part = p, Color = color})
-            table.insert(materialBatch, {Part = p, Material = mat, Transparency = numTrans})
-            table.insert(transBatch, {Part = p, Transparency = numTrans})
-            table.insert(anchorBatch, {Part = p, Anchored = true})
-            table.insert(collisionBatch, {Part = p, CanCollide = canCollide})
-
-            if type(surfData) == "table" then
-                table.insert(surfaceBatch, { Part = p, Surfaces = surfData })
-            end
-
-            if type(meshData) == "table" then
-                local mType = meshData.MeshType or Enum.MeshType.FileMesh
-                local hasCustomId = (meshData.MeshId and tostring(meshData.MeshId) ~= "")
-                local isBuiltInMesh = (mType ~= Enum.MeshType.FileMesh)
-                if hasCustomId or isBuiltInMesh then
-                    table.insert(meshCreateBatch, {Part = p})
-                    local formattedMeshId = hasCustomId and ("rbxassetid://" .. tostring(meshData.MeshId)) or ""
-                    local formattedTexId = (meshData.TextureId and tostring(meshData.TextureId) ~= "") and ("rbxassetid://" .. tostring(meshData.TextureId)) or ""
-                    
-                    table.insert(meshSyncBatch, {
-                        Part = p,
-                        MeshType = mType,
-                        MeshId = formattedMeshId,
-                        TextureId = formattedTexId,
-                        Scale = typeof(meshData.Scale) == "Vector3" and meshData.Scale or Vector3.new(1, 1, 1),
-                        Offset = typeof(meshData.Offset) == "Vector3" and meshData.Offset or Vector3.new(0, 0, 0)
-                    })
-                end
-            end
-
-            if type(textures) == "table" then
-                for _, t in ipairs(textures) do
-                    if t.Texture and tostring(t.Texture) ~= "" then
-                        local texType = t.Type or "Decal"
-                        local faceEnum = t.Face or Enum.NormalId.Front
-                        table.insert(textureCreateBatch, {
-                            Part = p,
-                            TextureType = texType,
-                            Face = faceEnum
-                        })
-                        local syncData = {
-                            Part = p,
-                            TextureType = texType,
-                            Face = faceEnum,
-                            Texture = "rbxassetid://" .. tostring(t.Texture),
-                            Transparency = tonumber(t.Transparency) or 0,
-                            Color = t.Color or Color3.fromRGB(255, 255, 255)
-                        }
-                        if texType == "Texture" then
-                            syncData.StudsPerTileU = tonumber(t.StudsPerTileU) or 1
-                            syncData.StudsPerTileV = tonumber(t.StudsPerTileV) or 1
-                            syncData.OffsetStudsU = tonumber(t.OffsetStudsU) or 0
-                            syncData.OffsetStudsV = tonumber(t.OffsetStudsV) or 0
-                        end
-                        table.insert(textureSyncBatch, syncData)
-                    end
-                end
-            end
-        end
-    end
-
-    -- Concurrent Non-Blocking Flushes
-    sendInChunks("SyncResize", resizeBatch, 2000)
-    sendInChunks("SyncColor", colorBatch, 2000)
-    sendInChunks("SyncMaterial", materialBatch, 2000)
-    sendInChunks("SyncTransparency", transBatch, 2000)
-    sendInChunks("SyncAnchor", anchorBatch, 2000)
-    sendInChunks("SyncCollision", collisionBatch, 2000)
-
-    if #surfaceBatch > 0 then
-        sendInChunks("SyncSurface", surfaceBatch, 2000)
-    end
-    if #meshCreateBatch > 0 then
-        sendInChunks("CreateMeshes", meshCreateBatch, 2000)
-        sendInChunks("SyncMesh", meshSyncBatch, 2000)
-    end
-    if #textureCreateBatch > 0 then
-        sendInChunks("CreateTextures", textureCreateBatch, 2000)
-        sendInChunks("SyncTexture", textureSyncBatch, 2000)
-    end
-
+    -- Step 4: Wait for All 200 Pipeline Threads to Finish, Then Unfreeze Instantly
+    repeat task.wait() until activeWorkers <= 0
     setCharacterAnchored(false)
-    print(string.format("[F3X Importer] Finished in ultra speed! Created %d parts.", totalParts - failedParts))
+    print(string.format("[F3X Importer V24.6] Velocity build finished with 200 workers! Total parts processed: %d", totalParts))
 end)
 ]]
 
@@ -532,5 +523,5 @@ if not isValid then
     error("[F3X Copier] Generated script syntax validation failed: " .. tostring(loadErr))
 else
     setclipboard(generatedScript)
-    print(string.format("[F3X Copier V24.0 Ultra] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
+    print(string.format("[F3X Copier V24.6 Velocity] Map copied to clipboard for '%s'! Total parts: %d", gameName, #serializedLines))
 end
