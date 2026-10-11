@@ -1,0 +1,345 @@
+-- (F3X) Nuke By ANAN
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local root = character:WaitForChild("HumanoidRootPart")
+
+local tool = (player:FindFirstChildOfClass("Backpack")
+    and player.Backpack:FindFirstChild("Building Tools"))
+    or character:FindFirstChild("Building Tools")
+
+assert(tool, "Equip F3X Building Tools first.")
+
+local sync = tool:FindFirstChild("SyncAPI")
+local endpoint = sync and sync:FindFirstChild("ServerEndpoint")
+
+assert(
+    endpoint and endpoint:IsA("RemoteFunction"),
+    "Compatible F3X ServerEndpoint not found."
+)
+
+-- Colors & Materials
+local WHITE = Color3.fromRGB(255, 255, 255)
+local YELLOW = Color3.fromRGB(255, 220, 0)
+local ORANGE = Color3.fromRGB(255, 90, 0)
+local CRIMSON = Color3.fromRGB(220, 20, 20)
+local OBSIDIAN = Color3.fromRGB(15, 15, 20)
+local METALLIC_DARK = Color3.fromRGB(35, 38, 45)
+
+local NEON = Enum.Material.Neon
+local METAL = Enum.Material.Metal
+local SLATE = Enum.Material.Slate
+
+-- Target Ground Zero Coordinates
+local groundZeroPosition = (root.CFrame * CFrame.new(0, 0, -75)).Position
+local targetY = root.Position.Y - 2.5
+local dropStartHeight = targetY + 180
+
+print("[NUKE V16] Launching perfectly aligned vertical missile drop...")
+
+-- ====================================================
+-- STAGE 1: BOMB DESCRIPTORS (CORRECTED LOCAL X-AXIS ALIGNMENT)
+-- ====================================================
+-- Cylinder length runs along the X-axis by default (-8 to +8)
+local bombCasingDescriptors = {
+    {Type = "MainBody", LocalOffset = Vector3.new(0, 0, 0), Size = Vector3.new(16, 6, 6), Color = METALLIC_DARK, Material = METAL, Mesh = Enum.MeshType.Cylinder},
+    {Type = "Warhead", LocalOffset = Vector3.new(8, 0, 0), Size = Vector3.new(6.2, 6.2, 6.2), Color = CRIMSON, Material = NEON, Mesh = Enum.MeshType.Sphere}, -- Bottom nose
+    {Type = "TailFin1", LocalOffset = Vector3.new(-8, 3, 0), Size = Vector3.new(4, 5, 0.8), Color = METALLIC_DARK, Material = METAL, Mesh = Enum.MeshType.Brick}, -- Top tail
+    {Type = "TailFin2", LocalOffset = Vector3.new(-8, -3, 0), Size = Vector3.new(4, 5, 0.8), Color = METALLIC_DARK, Material = METAL, Mesh = Enum.MeshType.Brick}, -- Top tail
+    {Type = "Beacon", LocalOffset = Vector3.new(-9, 0, 0), Size = Vector3.new(1.5, 1.5, 1.5), Color = YELLOW, Material = NEON, Mesh = Enum.MeshType.Sphere} -- Top tip
+}
+
+local bombParts = {}
+
+for _, d in ipairs(bombCasingDescriptors) do
+    -- Rotate local X-axis to point straight down (-Y world space)
+    local startCF = CFrame.new(groundZeroPosition + Vector3.new(0, dropStartHeight, 0)) * CFrame.Angles(0, 0, -math.pi/2) * CFrame.new(d.LocalOffset)
+    local ok, part = pcall(function()
+        return endpoint:InvokeServer("CreatePart", "Normal", startCF, Workspace)
+    end)
+    if ok and part and part:IsA("BasePart") then
+        table.insert(bombParts, {Part = part, Data = d})
+    end
+end
+
+-- Style Bomb Parts via F3X Batch
+local meshBatch, colorBatch, materialBatch, anchorBatch, collisionBatch = {}, {}, {}, {}, {}
+for _, item in ipairs(bombParts) do
+    local p, d = item.Part, item.Data
+    table.insert(meshBatch, {Part = p, MeshType = d.Mesh})
+    table.insert(colorBatch, {Part = p, Color = d.Color})
+    table.insert(materialBatch, {Part = p, Material = d.Material, Transparency = 0})
+    table.insert(anchorBatch, {Part = p, Anchored = true})
+    table.insert(collisionBatch, {Part = p, CanCollide = false})
+end
+
+pcall(function()
+    endpoint:InvokeServer("CreateMeshes", meshBatch)
+    endpoint:InvokeServer("SyncMesh", meshBatch)
+    endpoint:InvokeServer("SyncColor", colorBatch)
+    endpoint:InvokeServer("SyncMaterial", materialBatch)
+    endpoint:InvokeServer("SyncAnchor", anchorBatch)
+    endpoint:InvokeServer("SyncCollision", collisionBatch)
+end)
+
+
+-- ====================================================
+-- STAGE 2: DOWNWARD AIR-DROP DESCENT
+-- ====================================================
+local currentY = dropStartHeight
+local dropSpeed = 1.2
+
+while currentY > targetY do
+    currentY = math.max(currentY - dropSpeed, targetY)
+    dropSpeed = dropSpeed + 0.18 -- Downward acceleration
+    
+    local currentBombCenter = Vector3.new(groundZeroPosition.X, currentY, groundZeroPosition.Z)
+    local baseCF = CFrame.new(currentBombCenter) * CFrame.Angles(0, 0, -math.pi/2)
+    
+    local moveBatch = {}
+    for _, item in ipairs(bombParts) do
+        local p, d = item.Part, item.Data
+        local partCF = baseCF * CFrame.new(d.LocalOffset)
+        table.insert(moveBatch, {Part = p, Size = d.Size, CFrame = partCF})
+    end
+    
+    pcall(function()
+        endpoint:InvokeServer("SyncResize", moveBatch)
+    end)
+    
+    task.wait(0.02)
+end
+
+-- Instantly Remove Missile Body on Ground Impact
+local removeBombBatch = {}
+for _, item in ipairs(bombParts) do
+    table.insert(removeBombBatch, item.Part)
+end
+pcall(function() endpoint:InvokeServer("Remove", removeBombBatch) end)
+
+print("[NUKE V16] TARGET IMPACT! TRIGGERING BLAST...")
+
+
+-- ====================================================
+-- STAGE 3: HELLFIRE CATACLYSM BLAST (INSTANT SPAWN)
+-- ====================================================
+local nukeOrigin = CFrame.new(groundZeroPosition.X, targetY + 10, groundZeroPosition.Z)
+local descriptors = {}
+
+-- 1. Tri-Core Flash
+table.insert(descriptors, {Type = "FlashCore", Offset = Vector3.new(0, 0, 0), Size = Vector3.new(8, 8, 8), Color = YELLOW, Material = NEON})
+table.insert(descriptors, {Type = "FlashInner", Offset = Vector3.new(0, 0, 0), Size = Vector3.new(6, 6, 6), Color = WHITE, Material = NEON})
+table.insert(descriptors, {Type = "FlashPulse", Offset = Vector3.new(0, 0, 0), Size = Vector3.new(4, 4, 4), Color = CRIMSON, Material = NEON})
+
+-- 2. Orbiting Fireball Swarm (24 Sphere Meshes)
+for i = 1, 24 do
+    local angle = (i / 24) * math.pi * 2
+    table.insert(descriptors, {
+        Type = "Fireball",
+        Offset = Vector3.new(math.cos(angle)*16, 10, math.sin(angle)*16),
+        Size = Vector3.new(14, 14, 14),
+        Color = (i % 3 == 0 and YELLOW or (i % 2 == 0 and ORANGE or CRIMSON)),
+        Material = NEON
+    })
+end
+
+-- 3. Double Shockwave Rings (12 Sphere Meshes)
+for i = 1, 12 do
+    table.insert(descriptors, {
+        Type = "Shockwave",
+        Offset = Vector3.new(0, -14, 0),
+        Size = Vector3.new(12, 3, 12),
+        Color = (i <= 6 and YELLOW or CRIMSON),
+        Material = NEON
+    })
+end
+
+-- 4. Volcanic Mushroom Cloud (40 Sphere Meshes)
+for i = 1, 40 do
+    local isUpperCap = i > 28
+    local isLowerCap = i > 16 and i <= 28
+    table.insert(descriptors, {
+        Type = "Cloud",
+        Offset = Vector3.new(
+            (isUpperCap or isLowerCap) and math.sin(i)*25 or 0, 
+            i * 3.8, 
+            (isUpperCap or isLowerCap) and math.cos(i)*25 or 0
+        ),
+        Size = Vector3.new(16, 16, 16),
+        Color = (isUpperCap and YELLOW or (isLowerCap and ORANGE or OBSIDIAN)),
+        Material = ((isUpperCap or isLowerCap) and NEON or SLATE)
+    })
+end
+
+-- 50 Multi-Threaded Workers
+local totalParts = #descriptors
+local createdParts = table.create(totalParts)
+local allNukeParts = {}
+
+local WORKERS = 50
+local activeWorkers = WORKERS
+
+for workerId = 1, WORKERS do
+    task.spawn(function()
+        for i = workerId, totalParts, WORKERS do
+            local d = descriptors[i]
+            if d then
+                local ok, part = pcall(function()
+                    return endpoint:InvokeServer("CreatePart", "Normal", CFrame.new(nukeOrigin.Position + d.Offset), Workspace)
+                end)
+                if ok and part and part:IsA("BasePart") then
+                    createdParts[i] = {Part = part, Data = d}
+                    table.insert(allNukeParts, part)
+                end
+            end
+        end
+        activeWorkers = activeWorkers - 1
+    end)
+end
+
+repeat task.wait() until activeWorkers <= 0
+
+local nukeMeshBatch, nukeColorBatch, nukeMatBatch, nukeAnchorBatch, nukeCollBatch = {}, {}, {}, {}, {}
+for i = 1, totalParts do
+    local item = createdParts[i]
+    if item and item.Part and item.Data then
+        local p, d = item.Part, item.Data
+        table.insert(nukeMeshBatch, {Part = p, MeshType = Enum.MeshType.Sphere})
+        table.insert(nukeColorBatch, {Part = p, Color = d.Color})
+        table.insert(nukeMatBatch, {Part = p, Material = d.Material, Transparency = 0.05})
+        table.insert(nukeAnchorBatch, {Part = p, Anchored = true})
+        table.insert(nukeCollBatch, {Part = p, CanCollide = false})
+    end
+end
+
+pcall(function()
+    endpoint:InvokeServer("CreateMeshes", nukeMeshBatch)
+    endpoint:InvokeServer("SyncMesh", nukeMeshBatch)
+    endpoint:InvokeServer("SyncColor", nukeColorBatch)
+    endpoint:InvokeServer("SyncMaterial", nukeMatBatch)
+    endpoint:InvokeServer("SyncAnchor", nukeAnchorBatch)
+    endpoint:InvokeServer("SyncCollision", nukeCollBatch)
+end)
+
+
+-- ====================================================
+-- STAGE 4: DETONATION ANIMATION & CLEANUP
+-- ====================================================
+task.spawn(function()
+    local flashCore, flashInner, flashPulse, fireballList, shockList, cloudList = nil, nil, nil, {}, {}, {}
+    for _, item in ipairs(createdParts) do
+        if item and item.Part then
+            local t = item.Data.Type
+            if t == "FlashCore" then flashCore = item.Part
+            elseif t == "FlashInner" then flashInner = item.Part
+            elseif t == "FlashPulse" then flashPulse = item.Part
+            elseif t == "Fireball" then table.insert(fireballList, item.Part)
+            elseif t == "Shockwave" then table.insert(shockList, item.Part)
+            elseif t == "Cloud" then table.insert(cloudList, item.Part)
+            end
+        end
+    end
+
+    -- Flash
+    if flashCore and flashInner and flashPulse then
+        for size = 8, 180, 12 do
+            pcall(function()
+                endpoint:InvokeServer("SyncResize", {
+                    {Part = flashCore, Size = Vector3.new(size, size, size), CFrame = nukeOrigin},
+                    {Part = flashInner, Size = Vector3.new(size * 0.75, size * 0.75, size * 0.75), CFrame = nukeOrigin},
+                    {Part = flashPulse, Size = Vector3.new(size * 0.5, size * 0.5, size * 0.5), CFrame = nukeOrigin}
+                })
+            end)
+            task.wait(0.015)
+        end
+    end
+
+    -- Fireballs
+    task.spawn(function()
+        for size = 14, 110, 8 do
+            local resizeBatch = {}
+            for idx, p in ipairs(fireballList) do
+                local angle = (idx / #fireballList) * math.pi * 2 + (size * 0.02)
+                local offsetCF = nukeOrigin * CFrame.new(math.cos(angle)*size*0.5, math.sin(idx)*size*0.35, math.sin(angle)*size*0.5)
+                table.insert(resizeBatch, {Part = p, Size = Vector3.new(size, size, size), CFrame = offsetCF})
+            end
+            pcall(function() endpoint:InvokeServer("SyncResize", resizeBatch) end)
+            task.wait(0.02)
+        end
+    end)
+
+    -- Shockwaves
+    task.spawn(function()
+        local groundZero = nukeOrigin - Vector3.new(0, 16, 0)
+        for rSize = 12, 300, 16 do
+            local resizeBatch = {}
+            for idx, s in ipairs(shockList) do
+                local currentRSize = rSize - (idx * 20)
+                if currentRSize > 4 then
+                    local sCF = groundZero * CFrame.new(0, 2, 0)
+                    table.insert(resizeBatch, {Part = s, Size = Vector3.new(currentRSize, 6, currentRSize), CFrame = sCF})
+                end
+            end
+            pcall(function() endpoint:InvokeServer("SyncResize", resizeBatch) end)
+            task.wait(0.02)
+        end
+    end)
+
+    -- Mushroom Cloud
+    for height = 0, 140, 6 do
+        local resizeBatch = {}
+        for idx, p in ipairs(cloudList) do
+            local isUpperCap = idx > 28
+            local isLowerCap = idx > 16 and idx <= 28
+            local partCF
+            if not isUpperCap and not isLowerCap then
+                partCF = nukeOrigin * CFrame.new(0, (height / 16) * idx, 0)
+                table.insert(resizeBatch, {Part = p, Size = Vector3.new(18, 18, 18), CFrame = partCF})
+            elseif isLowerCap then
+                local angle = (idx / 12) * math.pi * 2
+                local capCF = nukeOrigin * CFrame.new(math.cos(angle)*28, height * 0.7 + 10, math.sin(angle)*28)
+                table.insert(resizeBatch, {Part = p, Size = Vector3.new(28, 20, 28), CFrame = capCF})
+            else
+                local angle = (idx / 12) * math.pi * 2
+                local capCF = nukeOrigin * CFrame.new(math.cos(angle)*38, height + 16, math.sin(angle)*38)
+                table.insert(resizeBatch, {Part = p, Size = Vector3.new(36, 26, 36), CFrame = capCF})
+            end
+        end
+        pcall(function() endpoint:InvokeServer("SyncResize", resizeBatch) end)
+        task.wait(0.02)
+    end
+
+    task.wait(1.8)
+
+    -- Transparency Fade-Out Removal
+    print("[NUKE V16] Fading out transparency...")
+    for trans = 0.05, 1.0, 0.08 do
+        local matBatch = {}
+        for _, part in ipairs(allNukeParts) do
+            if part and part.Parent then
+                table.insert(matBatch, {Part = part, Material = part.Material, Transparency = trans})
+            end
+        end
+        pcall(function()
+            endpoint:InvokeServer("SyncMaterial", matBatch)
+        end)
+        task.wait(0.03)
+    end
+
+    -- Cleanup
+    local chunkSize = 50
+    for i = 1, #allNukeParts, chunkSize do
+        local chunk = {}
+        for j = i, math.min(i + chunkSize - 1, #allNukeParts) do
+            table.insert(chunk, allNukeParts[j])
+        end
+        pcall(function()
+            endpoint:InvokeServer("Remove", chunk)
+        end)
+    end
+
+    print("[NUKE V16] Sequence successfully completed!")
+end)
