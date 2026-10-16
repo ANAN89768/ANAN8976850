@@ -1,0 +1,280 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+
+-- Expand simulation radius
+pcall(function()
+    setsimulationradius(1000)
+    settings().Physics.AllowSleep = false
+end)
+
+-- Clean up existing GUI if re-executed
+if CoreGui:FindFirstChild("ANAN_PartController") then
+    CoreGui.ANAN_PartController:Destroy()
+end
+if player.PlayerGui:FindFirstChild("ANAN_PartController") then
+    player.PlayerGui.ANAN_PartController:Destroy()
+end
+
+-- Active ScreenGui Setup with Safe Fallback
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ANAN_PartController"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function()
+    screenGui.Parent = CoreGui
+end)
+if not screenGui.Parent then
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+end
+
+-- Floating Toggle Button (To open/close the menu anytime)
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 45, 0, 45)
+toggleBtn.Position = UDim2.new(0, 15, 0.4, -22)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+toggleBtn.Text = "ANAN"
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.TextSize = 11
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.Parent = screenGui
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.Parent = toggleBtn
+
+-- Main Controller Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 180, 0, 190)
+mainFrame.Position = UDim2.new(0.5, -90, 0.4, -95)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = true
+mainFrame.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = mainFrame
+
+-- Toggle GUI Visibility on clicking floating button
+toggleBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = not mainFrame.Visible
+end)
+
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 26)
+topBar.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+topBar.BorderSizePixel = 0
+topBar.Parent = mainFrame
+
+local topCorner = Instance.new("UICorner")
+topCorner.CornerRadius = UDim.new(0, 8)
+topCorner.Parent = topBar
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 1, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "ANAN Controller"
+titleLabel.TextColor3 = Color3.fromRGB(240, 240, 250)
+titleLabel.TextSize = 11
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Parent = topBar
+
+-- Orbit Range Label & TextBox
+local orbitLabel = Instance.new("TextLabel")
+orbitLabel.Size = UDim2.new(0.85, 0, 0, 16)
+orbitLabel.Position = UDim2.new(0.075, 0, 0, 32)
+orbitLabel.BackgroundTransparency = 1
+orbitLabel.Text = "Orbit Range:"
+orbitLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
+orbitLabel.TextSize = 10
+orbitLabel.Font = Enum.Font.GothamMedium
+orbitLabel.TextXAlignment = Enum.TextXAlignment.Left
+orbitLabel.Parent = mainFrame
+
+local orbitTextBox = Instance.new("TextBox")
+orbitTextBox.Size = UDim2.new(0.85, 0, 0, 24)
+orbitTextBox.Position = UDim2.new(0.075, 0, 0, 50)
+orbitTextBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+orbitTextBox.Text = "7"
+orbitTextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+orbitTextBox.TextSize = 11
+orbitTextBox.Font = Enum.Font.Gotham
+orbitTextBox.Parent = mainFrame
+
+local boxCorner1 = Instance.new("UICorner")
+boxCorner1.CornerRadius = UDim.new(0, 5)
+boxCorner1.Parent = orbitTextBox
+
+-- Throw Power Label & TextBox
+local throwLabel = Instance.new("TextLabel")
+throwLabel.Size = UDim2.new(0.85, 0, 0, 16)
+throwLabel.Position = UDim2.new(0.075, 0, 0, 80)
+throwLabel.BackgroundTransparency = 1
+throwLabel.Text = "Throw Power:"
+throwLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
+throwLabel.TextSize = 10
+throwLabel.Font = Enum.Font.GothamMedium
+throwLabel.TextXAlignment = Enum.TextXAlignment.Left
+throwLabel.Parent = mainFrame
+
+local throwTextBox = Instance.new("TextBox")
+throwTextBox.Size = UDim2.new(0.85, 0, 0, 24)
+throwTextBox.Position = UDim2.new(0.075, 0, 0, 98)
+throwTextBox.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+throwTextBox.Text = "350"
+throwTextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+throwTextBox.TextSize = 11
+throwTextBox.Font = Enum.Font.Gotham
+throwTextBox.Parent = mainFrame
+
+local boxCorner2 = Instance.new("UICorner")
+boxCorner2.CornerRadius = UDim.new(0, 5)
+boxCorner2.Parent = throwTextBox
+
+-- Bring Button
+local bringButton = Instance.new("TextButton")
+bringButton.Size = UDim2.new(0.85, 0, 0, 32)
+bringButton.Position = UDim2.new(0.075, 0, 0, 135)
+bringButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+bringButton.Text = "Bring Owned (1000s)"
+bringButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+bringButton.TextSize = 12
+bringButton.Font = Enum.Font.GothamBold
+bringButton.Parent = mainFrame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = bringButton
+
+-- Custom Draggable Implementation for Main Frame
+local dragging, dragStart, startPos
+
+topBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+-- Main Logic
+local gatheredParts = {}
+local isBringing = false
+
+local function giveTool()
+    local char = player.Character
+    local backpack = player:FindFirstChildOfClass("Backpack")
+    if not backpack then return end
+    
+    if backpack:FindFirstChild("Click Target") or (char and char:FindFirstChild("Click Target")) then return end
+    
+    local tool = Instance.new("Tool")
+    tool.Name = "Click Target"
+    tool.RequiresHandle = false
+    tool.Parent = backpack
+    
+    local toolReady = false
+    
+    tool.Equipped:Connect(function()
+        task.wait(0.02)
+        toolReady = true
+    end)
+    
+    tool.Unequipped:Connect(function()
+        toolReady = false
+    end)
+    
+    tool.Activated:Connect(function()
+        if not toolReady then return end
+        
+        local mouse = player:GetMouse()
+        local targetPos = mouse.Hit.Position
+        local throwPower = tonumber(throwTextBox.Text) or 350
+        
+        for _, part in ipairs(gatheredParts) do
+            if part and part.Parent then
+                pcall(function()
+                    local dir = (targetPos - part.Position).Unit
+                    part.AssemblyLinearVelocity = (dir * throwPower) + Vector3.new(0, 50, 0)
+                end)
+            end
+        end
+        table.clear(gatheredParts)
+        isBringing = false
+        tool:Destroy()
+    end)
+end
+
+bringButton.MouseButton1Click:Connect(function()
+    table.clear(gatheredParts)
+    isBringing = true
+    
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    pcall(function() setsimulationradius(1000) end)
+    
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not obj.Anchored and not obj:IsDescendantOf(char) then
+            if (obj.Position - root.Position).Magnitude <= 1000 then
+                table.insert(gatheredParts, obj)
+            end
+        end
+    end
+    
+    giveTool()
+end)
+
+-- Dynamic Part Calculator & Orbit Loop
+RunService.Heartbeat:Connect(function(dt)
+    if not isBringing then return end
+    
+    for i = #gatheredParts, 1, -1 do
+        local p = gatheredParts[i]
+        if not p or not p.Parent or p.Anchored then
+            table.remove(gatheredParts, i)
+        end
+    end
+    
+    if #gatheredParts == 0 then return end
+    
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local angle = tick() * 6
+    local radius = tonumber(orbitTextBox.Text) or 7
+    local total = #gatheredParts
+    
+    for i, part in ipairs(gatheredParts) do
+        pcall(function()
+            local phi = math.acos(1 - (2 * (i - 0.5) / total))
+            local theta = math.sqrt(total * math.pi) * phi + angle
+            
+            local x = radius * math.sin(phi) * math.cos(theta)
+            local y = radius * math.cos(phi)
+            local z = radius * math.sin(phi) * math.sin(theta)
+            
+            local targetPos = root.Position + Vector3.new(x, y + 2, z)
+            part.AssemblyLinearVelocity = (targetPos - part.Position) * 18
+        end)
+    end
+end)
