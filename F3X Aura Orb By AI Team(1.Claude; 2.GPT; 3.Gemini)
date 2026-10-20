@@ -1,0 +1,812 @@
+-- LocalScript: StarterPlayer > StarterPlayerScripts
+-- OMEGA TUFF ORB: APOCALYPSE EDITION — FINAL EVOLUTION
+-- Fully realized F3X Remote-driven Futuristic Companion & Swarm System
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- Configuration Settings
+local FOLLOW_OFFSET = Vector3.new(2.5, 2.5, 3)
+local STIFFNESS = 75
+local DAMPING = 12.5
+local BASE_SIZE = 1.2
+local IDLE_AFTER = 3
+local SLEEP_AFTER = 25
+local ORBIT_RADIUS = 5.0
+local BLADE_COUNT = 6
+local SWARM_COUNT = 48
+local OVERDRIVE_COOLDOWN = 3.5
+local DASH_COOLDOWN = 2.0
+local CURIOUS_RANGE = 40
+local SEND_INTERVAL = 0.05
+local LIGHT_INTERVAL = 0.25
+local USE_LIGHT = true
+local SHOW_BUTTONS_ON_PC = false
+
+-- Theme Palette Definitions
+local THEMES = {
+	{ name = "Cyber Cyan", main = Color3.fromRGB(0, 255, 200), accent = Color3.fromRGB(0, 120, 255) },
+	{ name = "Plasma Ruby", main = Color3.fromRGB(255, 30, 90), accent = Color3.fromRGB(255, 180, 0) },
+	{ name = "Void Neon", main = Color3.fromRGB(180, 50, 255), accent = Color3.fromRGB(255, 0, 150) },
+	{ name = "Supernova", main = Color3.fromRGB(255, 255, 255), accent = Color3.fromRGB(0, 255, 100) },
+}
+local ALARM_COLOR = Color3.fromRGB(255, 20, 20)
+local SLEEP_COLOR = Color3.fromRGB(40, 40, 70)
+local BLACKHOLE_MAIN = Color3.fromRGB(15, 10, 25)
+local BLACKHOLE_ACCENT = Color3.fromRGB(120, 0, 200)
+
+local themeIndex = 1
+local mainColor = THEMES[1].main
+local accentColor = THEMES[1].accent
+
+local alive, ready = true, false
+local isBlackHoleActive = false
+
+-- F3X Sync API Integration
+local endpoint = nil
+local function getEndpoint()
+	if endpoint and endpoint.Parent then return endpoint end
+	endpoint = nil
+	for _, container in ipairs({ player.Character, player.Backpack }) do
+		if container then
+			for _, tool in ipairs(container:GetChildren()) do
+				local api = tool:FindFirstChild("SyncAPI")
+				local ep = api and api:FindFirstChild("ServerEndpoint")
+				if ep then
+					endpoint = ep
+					return ep
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function sync(action, ...)
+	local ep = getEndpoint()
+	if not ep then return nil end
+	local args = table.pack(...)
+	local ok, result = pcall(function()
+		return ep:InvokeServer(action, table.unpack(args, 1, args.n))
+	end)
+	return ok and result or nil
+end
+
+-- Part Registry Table
+local order = {}
+
+local function define(name, kind, material, color, transparency)
+	local p = {
+		name = name,
+		kind = kind,
+		material = material,
+		color = color,
+		transparency = transparency or 0,
+		cf = CFrame.new(),
+		size = Vector3.one * 0.5,
+		sent = {},
+	}
+	table.insert(order, p)
+	return p
+end
+
+local NEON = Enum.Material.Neon
+local WHITE = Color3.new(1, 1, 1)
+
+-- Core Components Definition
+local core = define("core", "Ball", NEON, mainColor)
+local shell = define("shell", "Ball", Enum.Material.Glass, Color3.fromRGB(10, 10, 15), 0.5)
+local eye = define("eye", "Ball", NEON, WHITE)
+local pupil = define("pupil", "Ball", Enum.Material.SmoothPlastic, Color3.fromRGB(5, 5, 8))
+
+local rings = {
+	define("ring1", "Cylinder", NEON, accentColor, 0.2),
+	define("ring2", "Cylinder", NEON, mainColor, 0.2),
+	define("ring3", "Cylinder", NEON, accentColor, 0.3),
+}
+
+local blades = {}
+for i = 1, BLADE_COUNT do
+	blades[i] = define("blade" .. i, "Normal", NEON, accentColor)
+end
+
+-- Lightning Aura Arcs (8 segments)
+local lightningArcs = {}
+for i = 1, 8 do
+	lightningArcs[i] = define("lightning" .. i, "Normal", NEON, WHITE, 0.2)
+end
+
+-- Swarm Nodes (48 Nodes)
+local swarmNodes = {}
+for i = 1, SWARM_COUNT do
+	swarmNodes[i] = define("swarm" .. i, "Ball", NEON, accentColor, 0.1)
+end
+
+-- Reusable Shockwave & Ambient Elements
+local waveBall = define("waveBall", "Ball", NEON, WHITE, 1)
+local waveDisc = define("waveDisc", "Cylinder", NEON, WHITE, 1)
+
+local zs = {}
+for i = 1, 3 do
+	zs[i] = define("z" .. i, "Ball", NEON, accentColor, 1)
+end
+
+local dots = {}
+for i = 1, 6 do
+	dots[i] = define("dot" .. i, "Ball", NEON, mainColor, 1)
+end
+
+local function put(p, cf, size, color, transparency)
+	p.cf = cf
+	p.size = Vector3.new(math.max(size.X, 0.05), math.max(size.Y, 0.05), math.max(size.Z, 0.05))
+	if color then p.color = color end
+	if transparency then p.transparency = transparency end
+end
+
+local function removeAll()
+	local list = {}
+	for _, p in ipairs(order) do
+		if p.inst then table.insert(list, p.inst) end
+	end
+	if #list > 0 then sync("Remove", list) end
+end
+
+-- Parallel Initialization of F3X Parts
+local function build(root)
+	local spawnCF = root.CFrame * CFrame.new(2.5, 10, 3)
+	local createdCount = 0
+	local lock = false
+	
+	for _, p in ipairs(order) do
+		task.spawn(function()
+			if not alive then return end
+			local inst = sync("CreatePart", p.kind, spawnCF, workspace)
+			while lock do task.wait() end
+			lock = true
+			if typeof(inst) == "Instance" then
+				p.inst = inst
+				createdCount += 1
+			end
+			lock = false
+		end)
+	end
+
+	local timeout = os.clock() + 6
+	while createdCount < #order and os.clock() < timeout and alive do
+		task.wait(0.05)
+	end
+
+	if createdCount < #order then
+		removeAll()
+		for _, q in ipairs(order) do q.inst = nil end
+		return false
+	end
+
+	local anchors, collisions = {}, {}
+	for _, p in ipairs(order) do
+		table.insert(anchors, { Part = p.inst, Anchored = true })
+		table.insert(collisions, { Part = p.inst, CanCollide = false })
+	end
+	sync("SyncAnchor", anchors)
+	sync("SyncCollision", collisions)
+	if USE_LIGHT then
+		sync("CreateLights", { { Part = core.inst, LightType = "PointLight" } })
+	end
+	return true
+end
+
+-- Batched Synchronization Pipeline
+local inflight = 0
+local lightB, lightColor, lastLight = 2.5, mainColor, 0
+
+local function fire(action, list)
+	if #list == 0 then return end
+	inflight += 1
+	task.spawn(function()
+		sync(action, list)
+		inflight -= 1
+	end)
+end
+
+local function cdiff(a, b)
+	return math.abs(a.R - b.R) + math.abs(a.G - b.G) + math.abs(a.B - b.B)
+end
+
+local function flush()
+	if inflight > 6 then return end
+	local resize, move, colors, mats = {}, {}, {}, {}
+
+	for _, p in ipairs(order) do
+		local inst = p.inst
+		if inst and inst.Parent then
+			local s = p.sent
+
+			local sizeChanged = not s.size or (p.size - s.size).Magnitude > 0.01
+			local cfChanged = not s.cf
+				or (p.cf.Position - s.cf.Position).Magnitude > 0.003
+				or p.cf.LookVector:Dot(s.cf.LookVector) < 0.9998
+				or p.cf.UpVector:Dot(s.cf.UpVector) < 0.9998
+
+			if sizeChanged then
+				table.insert(resize, { Part = inst, Size = p.size, CFrame = p.cf })
+				s.size, s.cf = p.size, p.cf
+			elseif cfChanged then
+				table.insert(move, { Part = inst, CFrame = p.cf })
+				s.cf = p.cf
+			end
+
+			if not s.color or cdiff(p.color, s.color) > 0.01 then
+				table.insert(colors, { Part = inst, Color = p.color, UnionColoring = true })
+				s.color = p.color
+			end
+
+			if s.transparency == nil or math.abs(p.transparency - s.transparency) > 0.02 then
+				table.insert(mats, { Part = inst, Material = p.material, Transparency = p.transparency })
+				s.transparency = p.transparency
+			end
+		end
+	end
+
+	fire("SyncResize", resize)
+	fire("SyncMove", move)
+	fire("SyncColor", colors)
+	fire("SyncMaterial", mats)
+
+	if USE_LIGHT and core.inst and os.clock() - lastLight > LIGHT_INTERVAL then
+		lastLight = os.clock()
+		fire("SyncLighting", {
+			{ Part = core.inst, LightType = "PointLight", Range = 22, Brightness = lightB, Color = lightColor },
+		})
+	end
+end
+
+-- Animation State Variables
+local pos, vel = Vector3.zero, Vector3.zero
+local placed = false
+local pulse, overdrive, excite, alert, alertS = 0, 0, 0, 0, 0
+local sleep, prevSleepGoal = 0, 0
+local curious, curiousRoot, scanTimer = 0, nil, 0
+local greet = 0
+local idleTime, idleBlend = 0, 0
+local fallSpeed = 0
+local lastHealth = 100
+local lastBurst = -100
+local lastDash = -100
+local dashOffset = Vector3.zero
+local spinAngle, ringAngle, orbitAngle, swarmAngle, lightningAngle = 0, 0, 0, 0, 0
+local lookDir = Vector3.zAxis
+local glance, glanceTimer = Vector3.zero, 0
+local blinking, blinkTimer = 0, 2
+local history, histTimer = {}, 0
+local waveB, waveD = nil, nil
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function ignoreList(char)
+	local list = { char }
+	for _, p in ipairs(order) do
+		if p.inst then table.insert(list, p.inst) end
+	end
+	return list
+end
+
+local function updateWave(p, w, flat, dt)
+	if not w then
+		p.transparency = 1
+		return nil
+	end
+	w.t += dt / 0.5
+	if w.t >= 1 then
+		p.transparency = 1
+		return nil
+	end
+	local e = 1 - (1 - w.t) ^ 2
+	local s = math.max(0.05, 1 + (w.max - 1) * e)
+	if flat then
+		p.cf = CFrame.new(w.pos) * CFrame.Angles(0, 0, math.rad(90))
+		p.size = Vector3.new(0.2, s, s)
+	else
+		p.cf = CFrame.new(w.pos)
+		p.size = Vector3.one * s
+	end
+	p.color = w.color
+	p.transparency = 0.3 + 0.7 * w.t
+	return w
+end
+
+-- Actions & Abilities
+local function overdriveBurst()
+	if not ready or os.clock() - lastBurst < OVERDRIVE_COOLDOWN then return end
+	lastBurst = os.clock()
+	overdrive, pulse, excite = 1, 1.8, 1
+	waveB = { t = 0, pos = pos, max = 28, color = accentColor }
+end
+
+local function phantomDash()
+	if not ready or os.clock() - lastDash < DASH_COOLDOWN then return end
+	lastDash = os.clock()
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local dir = root and root.AssemblyLinearVelocity.Magnitude > 2 and root.AssemblyLinearVelocity.Unit * 6 or (root and root.CFrame.LookVector * 6 or Vector3.new(0, 0, -6))
+	dashOffset = dir
+	pulse = 1.4
+	excite = 0.8
+end
+
+local function toggleBlackHole()
+	isBlackHoleActive = not isBlackHoleActive
+	pulse = 1.2
+end
+
+local function cycleTheme()
+	themeIndex = themeIndex % #THEMES + 1
+	pulse, excite = 1, 0.9
+end
+
+-- Futuristic Mobile & Desktop GUI Setup
+local gui = Instance.new("ScreenGui")
+gui.Name = "OmegaTuffOrbApocalypse"
+gui.ResetOnSpawn = false
+gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local status = Instance.new("TextLabel")
+status.AnchorPoint = Vector2.new(0.5, 0)
+status.Position = UDim2.fromScale(0.5, 0.02)
+status.Size = UDim2.fromOffset(320, 30)
+status.BackgroundTransparency = 0.25
+status.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+status.Font = Enum.Font.GothamBold
+status.TextSize = 14
+status.TextColor3 = Color3.fromRGB(0, 240, 255)
+status.Text = "Initializing Omega Tuff Orb..."
+status.Parent = gui
+Instance.new("UICorner", status).CornerRadius = UDim.new(0, 8)
+
+local controls = Instance.new("Frame")
+controls.Size = UDim2.fromScale(1, 1)
+controls.BackgroundTransparency = 1
+controls.Visible = UserInputService.TouchEnabled or SHOW_BUTTONS_ON_PC
+controls.Parent = gui
+
+local BUTTON_SIZE = math.clamp(camera.ViewportSize.Y * 0.11, 44, 58)
+
+local function makeButton(text, position, onPress)
+	local b = Instance.new("TextButton")
+	b.AnchorPoint = Vector2.new(1, 0.5)
+	b.Position = position
+	b.Size = UDim2.fromOffset(BUTTON_SIZE, BUTTON_SIZE)
+	b.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+	b.BackgroundTransparency = 0.2
+	b.Font = Enum.Font.GothamBlack
+	b.TextSize = 24
+	b.TextColor3 = WHITE
+	b.Text = text
+	b.Parent = controls
+	Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 2.5
+	stroke.Color = Color3.fromRGB(0, 240, 255)
+	stroke.Parent = b
+	b.Activated:Connect(onPress)
+	return b, stroke
+end
+
+local overdriveBtn, overdriveStroke = makeButton("⚡", UDim2.fromScale(0.96, 0.44), overdriveBurst)
+local dashBtn, dashStroke = makeButton("💨", UDim2.fromScale(0.96, 0.58), phantomDash)
+local bhBtn, bhStroke = makeButton("🌀", UDim2.fromScale(0.96, 0.72), toggleBlackHole)
+local themeBtn, themeStroke = makeButton("🎨", UDim2.fromScale(0.96, 0.86), cycleTheme)
+local removeBtn, removeStroke = makeButton("🗑", UDim2.fromScale(0.96, 0.30), function()
+	alive, ready = false, false
+	removeAll()
+	gui:Destroy()
+end)
+removeStroke.Color = Color3.fromRGB(255, 200, 50)
+
+local function updateUI()
+	local remaining = OVERDRIVE_COOLDOWN - (os.clock() - lastBurst)
+	if remaining > 0 then
+		overdriveBtn.Text = string.format("%.1f", remaining)
+		overdriveBtn.TextSize = 18
+		overdriveBtn.BackgroundTransparency = 0.6
+	else
+		overdriveBtn.Text = "⚡"
+		overdriveBtn.TextSize = 24
+		overdriveBtn.BackgroundTransparency = 0.2
+	end
+	
+	local dashRem = DASH_COOLDOWN - (os.clock() - lastDash)
+	if dashRem > 0 then
+		dashBtn.Text = string.format("%.1f", dashRem)
+		dashBtn.TextSize = 18
+	else
+		dashBtn.Text = "💨"
+		dashBtn.TextSize = 24
+	end
+	
+	bhStroke.Color = isBlackHoleActive and Color3.fromRGB(180, 0, 255) or Color3.fromRGB(0, 240, 255)
+	overdriveStroke.Color = mainColor
+	themeStroke.Color = accentColor
+end
+
+-- Keyboard Bindings
+UserInputService.JumpRequest:Connect(function()
+	pulse = math.max(pulse, 1)
+	excite = math.max(excite, 0.7)
+end)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed or not alive then return end
+	local k = input.KeyCode
+	if k == Enum.KeyCode.E or k == Enum.KeyCode.ButtonX then
+		overdriveBurst()
+	elseif k == Enum.KeyCode.F then
+		phantomDash()
+	elseif k == Enum.KeyCode.G then
+		toggleBlackHole()
+	elseif k == Enum.KeyCode.Q or k == Enum.KeyCode.ButtonY then
+		cycleTheme()
+	elseif k == Enum.KeyCode.X then
+		alive, ready = false, false
+		removeAll()
+		gui:Destroy()
+	end
+end)
+
+-- Character & Health Event Management
+local function onCharacter(char)
+	local hum = char:WaitForChild("Humanoid")
+	lastHealth = hum.Health
+	greet = 1
+
+	hum.StateChanged:Connect(function(_, new)
+		if new ~= Enum.HumanoidStateType.Landed then return end
+		excite = math.max(excite, 0.6)
+		if fallSpeed > 45 and ready then
+			local root = char:FindFirstChild("HumanoidRootPart")
+			if root then
+				rayParams.FilterDescendantsInstances = ignoreList(char)
+				local hit = workspace:Raycast(root.Position, Vector3.new(0, -25, 0), rayParams)
+				if hit then
+					waveD = {
+						t = 0,
+						pos = hit.Position + Vector3.new(0, 0.15, 0),
+						max = math.clamp(fallSpeed / 1.8, 16, 45),
+						color = mainColor,
+					}
+				end
+			end
+			pulse = 2
+		end
+		fallSpeed = 0
+	end)
+
+	hum.HealthChanged:Connect(function(h)
+		if h < lastHealth - 0.5 then
+			alert = 1
+			excite = 0
+		end
+		lastHealth = h
+	end)
+end
+
+if player.Character then task.spawn(onCharacter, player.Character) end
+player.CharacterAdded:Connect(onCharacter)
+
+-- Startup Summoning Loop
+task.spawn(function()
+	while alive and not ready do
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if root and getEndpoint() then
+			status.Text = "Summoning Apocalypse Orb..."
+			if build(root) then
+				ready = true
+				status.Visible = false
+			else
+				status.Text = "Build failed. Verify F3X tool!"
+				task.wait(3)
+			end
+		else
+			status.Text = "Equip Building Tools in Backpack!"
+		end
+		task.wait(1)
+	end
+end)
+
+-- Network Synchronization Loop
+task.spawn(function()
+	while alive do
+		task.wait(SEND_INTERVAL)
+		if ready then flush() end
+	end
+end)
+
+-- Main Physics & Animation Loop
+RunService.Heartbeat:Connect(function(rawDt)
+	if not alive then return end
+	local dt = math.min(rawDt, 1 / 30)
+	updateUI()
+	if not ready then return end
+
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not root or not hum then return end
+
+	local t = os.clock()
+	local rootVel = root.AssemblyLinearVelocity
+	if rootVel.Y < 0 then fallSpeed = math.max(fallSpeed, -rootVel.Y) end
+	local flatSpeed = Vector3.new(rootVel.X, 0, rootVel.Z).Magnitude
+	local speedFactor = math.clamp(flatSpeed / 30, 0, 1)
+
+	-- Idle & Sleep Checks
+	if flatSpeed < 1 then idleTime += dt else idleTime = 0 end
+	local idleGoal = idleTime > IDLE_AFTER and 1 or 0
+	idleBlend += (idleGoal - idleBlend) * (1 - math.exp(-2 * dt))
+
+	local dead = hum.Health <= 0
+	local sleepGoal = (idleTime > SLEEP_AFTER or dead) and 1 or 0
+	if prevSleepGoal == 1 and sleepGoal == 0 then
+		excite, pulse = 1, 1
+	end
+	prevSleepGoal = sleepGoal
+	sleep += (sleepGoal - sleep) * (1 - math.exp(-1.2 * dt))
+
+	-- Rage Mode & Health Alerts
+	alert = math.max(0, alert - dt / 2.5)
+	local lowHealth = (not dead) and (hum.Health / hum.MaxHealth < 0.3)
+	local alertGoal = math.max(alert, lowHealth and 0.6 or 0)
+	alertS += (alertGoal - alertS) * (1 - math.exp(-8 * dt))
+
+	-- Curiosity AI Scan
+	scanTimer -= dt
+	if scanTimer <= 0 then
+		scanTimer = 0.3
+		curiousRoot = nil
+		local best = CURIOUS_RANGE
+		for _, other in ipairs(Players:GetPlayers()) do
+			if other ~= player and other.Character then
+				local r = other.Character:FindFirstChild("HumanoidRootPart")
+				if r then
+					local d = (r.Position - root.Position).Magnitude
+					if d < best then
+						best = d
+						curiousRoot = r
+					end
+				end
+			end
+		end
+	end
+	if curiousRoot and not curiousRoot.Parent then curiousRoot = nil end
+	curious += ((curiousRoot and 1 or 0) - curious) * (1 - math.exp(-3 * dt))
+
+	-- Decay Factors
+	pulse = math.max(0, pulse - dt * 2.5)
+	overdrive = math.max(0, overdrive - dt / 3)
+	excite = math.max(0, excite - dt / 1.5)
+	greet = math.max(0, greet - dt / 2.5)
+	dashOffset = dashOffset:Lerp(Vector3.zero, 1 - math.exp(-6 * dt))
+
+	-- Target Position Calculation
+	local followOffset = FOLLOW_OFFSET * (1 - 0.45 * alertS)
+	local bobSpeed = 2.5 + excite * 3.5
+	local bobAmp = math.max(0.1, 0.45 + excite * 0.45 - sleep * 0.3)
+	local followTarget = root.CFrame:PointToWorldSpace(
+		followOffset + Vector3.new(0, math.sin(t * bobSpeed) * bobAmp, 0)
+	) + dashOffset
+
+	orbitAngle += dt * (1.6 + greet * 7)
+	local orbitRadius = ORBIT_RADIUS * (1 - 0.3 * greet)
+	local orbitTarget = root.Position + Vector3.new(
+		math.cos(orbitAngle) * orbitRadius,
+		2.8 + math.sin(t * 2) * 0.7,
+		math.sin(orbitAngle) * orbitRadius
+	)
+	local orbitBlend = math.max(idleBlend, math.min(1, greet * 3))
+	local target = followTarget:Lerp(orbitTarget, orbitBlend)
+
+	if curiousRoot then
+		target = target:Lerp(curiousRoot.Position + Vector3.new(0, 3, 0), 0.25 * curious * (1 - sleep))
+	end
+
+	local restSpot = root.CFrame:PointToWorldSpace(Vector3.new(2.5, -1.4 + math.sin(t * 1.2) * 0.15, 2.5))
+	target = target:Lerp(restSpot, sleep)
+
+	-- Environmental Wall Raycasting
+	rayParams.FilterDescendantsInstances = ignoreList(char)
+	local origin = root.Position + Vector3.new(0, 1.5, 0)
+	local hit = workspace:Raycast(origin, target - origin, rayParams)
+	if hit then target = hit.Position + hit.Normal end
+
+	if not placed or (target - pos).Magnitude > 80 then
+		pos, vel, placed = target, Vector3.zero, true
+		history = {}
+	end
+
+	-- Spring Physics Integration
+	local stiff = STIFFNESS * (1 - 0.5 * sleep) * (1 + 0.4 * alertS)
+	local damp = DAMPING * math.sqrt(stiff / STIFFNESS)
+	vel += ((target - pos) * stiff - vel * damp) * dt
+	pos += vel * dt
+
+	-- Color Theming & Transitions
+	local theme = THEMES[themeIndex]
+	local k = 1 - math.exp(-6 * dt)
+	mainColor = mainColor:Lerp(theme.main, k)
+	accentColor = accentColor:Lerp(theme.accent, k)
+	
+	local activeMain = isBlackHoleActive and BLACKHOLE_MAIN or mainColor
+	local activeAccent = isBlackHoleActive and BLACKHOLE_ACCENT or accentColor
+	
+	local displayMain = activeMain:Lerp(ALARM_COLOR, alertS * 0.8):Lerp(SLEEP_COLOR, sleep * 0.5)
+	local displayAccent = activeAccent:Lerp(SLEEP_COLOR, sleep * 0.5)
+
+	-- Tremor/Shake Calculation
+	local shake = overdrive * 0.15 + alertS * 0.1
+	local renderPos = pos + Vector3.new(
+		(math.random() - 0.5) * shake,
+		(math.random() - 0.5) * shake,
+		(math.random() - 0.5) * shake
+	)
+
+	-- Core & Glass Shell
+	local breathe = 1 + 0.05 * math.sin(t * (2 - sleep * 0.9))
+	local size = (BASE_SIZE * (1 - 0.15 * sleep) + pulse * 0.6 + overdrive * 0.5 + excite * 0.25) * breathe
+	local stretch = math.clamp(vel.Magnitude / 55, 0, 0.6)
+	local coreCF = vel.Magnitude > 0.5 and CFrame.lookAt(renderPos, renderPos + vel) or CFrame.new(renderPos)
+	
+	put(core, coreCF, Vector3.new(size * 0.75, size * 0.75, size * 0.75 * (1 + stretch)), displayMain)
+	put(shell, CFrame.new(renderPos), Vector3.one * size * (isBlackHoleActive and 1.6 or 1.3), displayAccent, isBlackHoleActive and 0.2 or 0.5)
+
+	-- Eye Tracking & Glancing
+	local toPlayer = (root.Position + Vector3.new(0, 1.5, 0)) - renderPos
+	local desired = toPlayer.Magnitude > 0.1 and toPlayer.Unit or lookDir
+	if flatSpeed > 4 then
+		local moveDir = Vector3.new(rootVel.X, 0, rootVel.Z).Unit
+		desired = (desired * 0.3 + moveDir).Unit
+	end
+
+	glanceTimer -= dt
+	if glanceTimer <= 0 then
+		glanceTimer = 1.5 + math.random() * 3.5
+		glance = Vector3.new(math.random() * 2 - 1, math.random() - 0.4, math.random() * 2 - 1) * 0.7
+	end
+	desired += glance * (idleBlend * (1 - curious) * (1 - sleep))
+
+	if curiousRoot then
+		local toThem = (curiousRoot.Position + Vector3.new(0, 2, 0)) - renderPos
+		if toThem.Magnitude > 0.1 then
+			desired = desired:Lerp(toThem.Unit, curious)
+		end
+	end
+	desired = desired:Lerp(Vector3.new(0, -0.7, 0.3), sleep)
+	if desired.Magnitude < 0.01 then desired = lookDir end
+
+	lookDir = lookDir:Lerp(desired.Unit, 1 - math.exp(-8 * dt))
+	if lookDir.Magnitude < 0.01 then lookDir = Vector3.zAxis end
+	lookDir = lookDir.Unit
+
+	-- Blinking Mechanics
+	blinkTimer -= dt
+	if blinkTimer <= 0 then
+		blinkTimer = 2 + math.random() * 4
+		blinking = 0.14
+	end
+	blinking = math.max(0, blinking - dt)
+	local blinkClosed = blinking > 0 and math.sin(math.clamp(blinking / 0.14, 0, 1) * math.pi) or 0
+	local openness = (1 - 0.8 * sleep) * (1 + 0.25 * alertS + 0.2 * excite) * (1 - 0.95 * blinkClosed)
+	openness = math.clamp(openness, 0.05, 1.3)
+
+	local eyeCenter = renderPos + lookDir * (size * 0.32)
+	local eyeCF = CFrame.lookAt(eyeCenter, eyeCenter + lookDir)
+	put(eye, eyeCF, Vector3.new(size * 0.48, size * 0.48 * openness, size * 0.22), isBlackHoleActive and displayAccent or WHITE:Lerp(displayMain, 0.25))
+
+	local pupilScale = size * 0.22 * (1 + 0.5 * excite + 0.4 * curious - 0.35 * alertS)
+	local ox = math.noise(t * 1.3, 5, 0) * size * 0.06
+	local oy = math.noise(t * 1.1, 9, 0) * size * 0.05
+	put(
+		pupil,
+		eyeCF * CFrame.new(ox, oy, -size * 0.1),
+		Vector3.new(pupilScale, pupilScale * math.clamp(openness, 0.05, 1), size * 0.12)
+	)
+
+	-- Rotating Shield Rings
+	ringAngle += dt * (1.2 + speedFactor * 2.5 + overdrive * 6 - sleep * 0.8)
+	local ringCFs = {
+		CFrame.new(renderPos) * CFrame.Angles(ringAngle * 1.5, ringAngle * 0.7, 0),
+		CFrame.new(renderPos) * CFrame.Angles(0, ringAngle * 1.1, ringAngle * 1.9),
+		CFrame.new(renderPos) * CFrame.Angles(ringAngle * 0.8, 0, ringAngle * 1.3),
+	}
+	for i, r in ipairs(rings) do
+		local d = size * (1.8 + i * 0.32)
+		put(r, ringCFs[i], Vector3.new(0.08, d, d), i == 2 and displayAccent or displayMain, isBlackHoleActive and 0.1 or 0.2)
+	end
+
+	-- High-Speed Blades
+	spinAngle += dt * (2.5 + speedFactor * 7 + overdrive * 16 + excite * 5) * (1 - 0.85 * sleep)
+	local radius = size * 1.45 + speedFactor * 0.6 + overdrive + alertS * 0.4
+	for i, b in ipairs(blades) do
+		local a = spinAngle + (i - 1) * (math.pi * 2 / BLADE_COUNT)
+		put(
+			b,
+			CFrame.new(renderPos) * CFrame.Angles(0, a, 0) * CFrame.new(0, math.sin(t * 3 + i) * 0.25, -radius),
+			Vector3.new(1.4 + overdrive * 1.4, 0.12, 0.12),
+			displayAccent
+		)
+	end
+
+	-- Thunderstorm Aura (8 Electric Arcs)
+	lightningAngle += dt * 6
+	for i, arc in ipairs(lightningArcs) do
+		if sleep > 0.8 then
+			arc.transparency = 1
+		else
+			local angle = lightningAngle + (i * (math.pi * 2 / #lightningArcs))
+			local arcRadius = size * 1.1 + math.sin(t * 10 + i) * 0.3
+			local arcCF = CFrame.new(renderPos) * CFrame.Angles(math.sin(t * 5 + i), angle, math.cos(t * 4 + i)) * CFrame.new(0, 0, -arcRadius)
+			local arcSize = Vector3.new(0.1, 0.1, size * (0.8 + 0.4 * math.sin(t * 15 + i)))
+			put(arc, arcCF, arcSize, WHITE, 0.15)
+		end
+	end
+
+	-- Animated Swarm Nodes
+	swarmAngle += dt * 3.5
+	for i, node in ipairs(swarmNodes) do
+		if sleep > 0.8 then
+			node.transparency = 1
+		else
+			local angleOffset = (i / SWARM_COUNT) * (math.pi * 2)
+			local subRadius = size * (isBlackHoleActive and (1.5 + (i % 5) * 0.4) or 2.2) + math.sin(t * 3 + i) * 0.4
+			local swarmCF = CFrame.new(renderPos) * CFrame.Angles(0, swarmAngle + angleOffset, math.sin(t * 2 + i) * 0.8) * CFrame.new(0, 0, -subRadius)
+			put(node, swarmCF, Vector3.one * (0.2 + 0.1 * math.sin(t * 4 + i)), displayAccent, isBlackHoleActive and 0.05 or 0.15)
+		end
+	end
+
+	-- Sleepy Z Markers
+	for i, z in ipairs(zs) do
+		if sleep > 0.7 then
+			local ph = (t * 0.5 + i / #zs) % 1
+			put(
+				z,
+				CFrame.new(renderPos + Vector3.new(0.6 + ph, 1.2 + ph * 2.2, 0)),
+				Vector3.one * (0.2 + ph * 0.2),
+				displayAccent,
+				math.clamp(0.2 + ph * 0.8, 0, 1)
+			)
+		else
+			z.transparency = 1
+		end
+	end
+
+	-- Particle Trail Dots
+	histTimer += dt
+	if histTimer > 0.04 then
+		histTimer = 0
+		table.insert(history, 1, renderPos)
+		if #history > #dots + 1 then table.remove(history) end
+	end
+	for i, d in ipairs(dots) do
+		local h = history[i + 1]
+		if h and vel.Magnitude > 2 then
+			put(d, CFrame.new(h), Vector3.one * (size * 0.4 * (1 - i / (#dots + 1))), displayMain, 0.3 + i * 0.1)
+		else
+			d.transparency = 1
+		end
+	end
+
+	-- Shockwaves
+	waveB = updateWave(waveBall, waveB, false, dt)
+	waveD = updateWave(waveDisc, waveD, true, dt)
+
+	-- Dynamic Lighting Integration
+	local flicker = math.noise(t * 16, 0, 0) * 1.5
+	lightColor = displayMain
+	lightB = math.max(0.4, (3.0 + flicker + pulse * 3.5 + overdrive * 4.5 + excite * 1.8) * (1 - 0.7 * sleep))
+end)
