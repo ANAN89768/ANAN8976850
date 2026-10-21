@@ -1,0 +1,133 @@
+-- F3X Particle Script By ANAN
+local Players = game:GetService("Players")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- CONFIG
+local DECAL_ID = "rbxassetid://123189913898372" -- put your decal/image ID here
+local PART_SIZE = Vector3.new(3.5, 3.5, 0.01)
+local PART_TRANSPARENCY = 1
+local PART_COLOR = Color3.fromRGB(255, 255, 255)
+local HEIGHT_ABOVE_HEAD = 3
+local SPREAD = 1.5
+
+local SPAWN_INTERVAL = 2
+local STEP_TIME = 0.15
+local RISE_PER_STEP = 1.5
+local RISE_STEPS = 20
+
+local WORKER_COUNT = 12       -- how many workers process spawn jobs at once
+local MAX_QUEUE = 40          -- max waiting jobs (prevents backlog)
+
+local FACES = {Enum.NormalId.Front, Enum.NormalId.Back}
+
+local function getEndpoint()
+	for _, container in ipairs({LocalPlayer.Character, LocalPlayer.Backpack}) do
+		if container then
+			for _, tool in ipairs(container:GetChildren()) do
+				local api = tool:FindFirstChild("SyncAPI")
+				if api and api:FindFirstChild("ServerEndpoint") then
+					return api.ServerEndpoint
+				end
+			end
+		end
+	end
+end
+
+-- Runs every function in its own thread and waits until all finish
+local function parallel(tasks)
+	local pending = #tasks
+	for _, fn in ipairs(tasks) do
+		task.spawn(function()
+			pcall(fn)
+			pending -= 1
+		end)
+	end
+	while pending > 0 do
+		task.wait()
+	end
+end
+
+local function animate(endpoint, part, cf)
+	for _ = 1, RISE_STEPS do
+		if not part.Parent then return end
+		task.wait(STEP_TIME)
+		cf += Vector3.new(0, RISE_PER_STEP, 0)
+		endpoint:InvokeServer("SyncMove", {{Part = part, CFrame = cf}})
+	end
+
+	if part.Parent then
+		endpoint:InvokeServer("Remove", {part})
+	end
+end
+
+local function setupFace(endpoint, part, face)
+	endpoint:InvokeServer("CreateTextures", {{Part = part, Face = face, TextureType = "Decal"}})
+	endpoint:InvokeServer("SyncTexture", {{
+		Part = part,
+		Face = face,
+		TextureType = "Decal",
+		Texture = DECAL_ID,
+		Transparency = 0
+	}})
+end
+
+local function spawnAbove(head)
+	local endpoint = getEndpoint()
+	if not endpoint then return end
+
+	local pos = head.Position + Vector3.new(
+		(math.random() - 0.5) * 2 * SPREAD,
+		HEIGHT_ABOVE_HEAD,
+		(math.random() - 0.5) * 2 * SPREAD
+	)
+	local look = head.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+	local cf = CFrame.lookAt(pos, pos + flat.Unit)
+
+	local part = endpoint:InvokeServer("CreatePart", "Normal", cf, workspace)
+	if not part then return end
+
+	-- All of these run at the same time, one thread each
+	parallel({
+		function() endpoint:InvokeServer("SyncResize", {{Part = part, CFrame = cf, Size = PART_SIZE}}) end,
+		function() endpoint:InvokeServer("SyncAnchor", {{Part = part, Anchored = true}}) end,
+		function() endpoint:InvokeServer("SyncCollision", {{Part = part, CanCollide = false}}) end,
+		function() endpoint:InvokeServer("SyncMaterial", {{Part = part, Transparency = PART_TRANSPARENCY}}) end,
+		function() endpoint:InvokeServer("SyncColor", {{Part = part, Color = PART_COLOR, UnionColoring = false}}) end,
+		function() setupFace(endpoint, part, FACES[1]) end, -- Front
+		function() setupFace(endpoint, part, FACES[2]) end, -- Back
+	})
+
+	task.spawn(animate, endpoint, part, cf)
+end
+
+-- Job queue + worker pool
+local queue = {}
+
+for _ = 1, WORKER_COUNT do
+	task.spawn(function()
+		while true do
+			local head = table.remove(queue, 1)
+			if head then
+				pcall(spawnAbove, head)
+			else
+				task.wait(0.05)
+			end
+		end
+	end)
+end
+
+-- Spawner loop: just adds jobs, workers do the work
+task.spawn(function()
+	while true do
+		for _, plr in ipairs(Players:GetPlayers()) do
+			local head = plr.Character and plr.Character:FindFirstChild("Head")
+			if head and #queue < MAX_QUEUE then
+				table.insert(queue, head)
+			end
+		end
+		task.wait(SPAWN_INTERVAL)
+	end
+end)
