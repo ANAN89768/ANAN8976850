@@ -1,12 +1,12 @@
 -- VEREUS showcase, VISUAL ONLY, built through F3X SyncAPI so other players see it
--- LocalScript for StarterPlayerScripts. Keep the F3X tool in your Backpack.
 -- PC keys / mobile buttons:
 -- Z = white form   X = red form (press the same key again to go back)
 -- Q = red eye stare   E = doom pillars   T = unleashed evil ball   P = remove everything
 -- Nothing here damages, moves or deletes other players.
 --
 -- Smooth mode: parts are un-anchored through F3X and driven from your client every frame.
--- If the server doesn't accept that, it falls back to anchored SyncMove workers automatically.
+-- If a part ever drifts away, everything is re-anchored and it switches to SyncMove workers.
+-- A watchdog also rebuilds any part that gets deleted.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -35,7 +35,7 @@ local function C(...) return CFrame.new(...) end
 local function A(x, y, z) return CFrame.Angles(math.rad(x), math.rad(y), math.rad(z)) end
 local sin = math.sin
 
-local USE_PHYSICS = true       -- smooth client-driven mode (auto falls back if it doesn't work)
+local USE_PHYSICS = true       -- smooth client-driven mode (set false for the always-stable anchored mode)
 local PILLAR_COUNT = 14        -- lower this if the server lags
 local WORKERS_PER_GROUP = 3    -- only used by the fallback mode
 local WALK_SPEED = 92          -- matches the walk animation (from the original script)
@@ -277,7 +277,7 @@ local function apply()
 	if not usePhysics then return end
 	for name, cf in pairs(target) do
 		local p = P[name]
-		if p then
+		if p and p.Parent then
 			p.CFrame = cf
 			p.AssemblyLinearVelocity = V0
 			p.AssemblyAngularVelocity = V0
@@ -304,7 +304,7 @@ local function startGroup(names)
 				local list = {}
 				for _, n in ipairs(names) do
 					local cf, p = target[n], P[n]
-					if cf and p and differs(last[n], cf) then
+					if cf and p and p.Parent and differs(last[n], cf) then
 						last[n] = cf
 						table.insert(list, { Part = p, CFrame = cf })
 					end
@@ -328,14 +328,17 @@ local function startWorkers()
 end
 
 local function fallback()
+	if not usePhysics then return end
 	usePhysics = false
 	local list = {}
 	for _, p in pairs(P) do
-		table.insert(list, { Part = p, Anchored = true })
+		if p.Parent then
+			table.insert(list, { Part = p, Anchored = true })
+		end
 	end
 	pcall(api, "SyncAnchor", list)
 	startWorkers()
-	warn("[Vereus] smooth mode was not accepted, using anchored sync workers")
+	warn("[Vereus] a part drifted, re-anchored everything and switched to sync workers")
 end
 
 if not usePhysics then
@@ -343,12 +346,6 @@ if not usePhysics then
 end
 
 ---------------------------------------------------------------- Main update loops
-local probing = false
-local probeChecked, probeDrift = 0, 0
-if usePhysics then
-	task.delay(1, function() probing = true end)
-end
-
 local conn = RunService.RenderStepped:Connect(function(dt)
 	if not alive then return end
 	sine += change * 60 * dt
@@ -377,21 +374,21 @@ local conn = RunService.RenderStepped:Connect(function(dt)
 	apply()
 end)
 
--- runs right before each physics step: keeps the rig pinned (no gravity drift) and checks ownership
+-- runs before every physics step: keeps the rig pinned and watches for drift the whole time
+local drift = {}
 local steppedConn = RunService.Stepped:Connect(function()
 	if not alive then return end
-	if probing and usePhysics then
-		for _, n in ipairs({ "head", "hand1", "hand2" }) do
-			local p, la = P[n], lastApplied[n]
-			if p and la and (p.Position - la.Position).Magnitude > 2 then
-				probeDrift += 1
-			end
-		end
-		probeChecked += 3
-		if probeChecked >= 270 then
-			probing = false
-			if probeDrift > 90 then
-				fallback()
+	if usePhysics then
+		for name, p in pairs(P) do
+			local la = lastApplied[name]
+			if la and p.Parent and (p.Position - la.Position).Magnitude > 4 then
+				drift[name] = (drift[name] or 0) + 1
+				if drift[name] > 20 then
+					fallback()
+					break
+				end
+			else
+				drift[name] = 0
 			end
 		end
 	end
@@ -748,6 +745,91 @@ task.spawn(function()
 	end
 end)
 
+---------------------------------------------------------------- Watchdog (instant rebuild of any deleted part)
+local rebuilding = false
+
+local function rebuild(missing)
+	-- 1) create every missing part at the same time
+	local made, pend = {}, #missing
+	for _, name in ipairs(missing) do
+		task.spawn(function()
+			local s = specs[name]
+			local p = api("CreatePart", s.shape or "Normal", target[name] or root.CFrame, workspace)
+			if p then
+				made[name] = p
+				P[name] = p -- back in the rig right away, it starts following you immediately
+				drift[name] = 0
+				lastApplied[name] = nil
+			end
+			pend -= 1
+		end)
+	end
+	while pend > 0 do RunService.Heartbeat:Wait() end
+	if next(made) == nil then return false end
+
+	-- 2) one batched call per property for all rebuilt parts, all running in parallel
+	local resize, color, material, collision, anchor, meshes, meshProps = {}, {}, {}, {}, {}, {}, {}
+	for name, p in pairs(made) do
+		local s = specs[name]
+		table.insert(resize, { Part = p, CFrame = target[name] or root.CFrame, Size = s.size })
+		table.insert(color, { Part = p, Color = s.color, UnanchorAfter = false })
+		table.insert(material, { Part = p, Material = s.mat, Transparency = s.transparency or 0 })
+		table.insert(collision, { Part = p, CanCollide = false })
+		if usePhysics then
+			table.insert(anchor, { Part = p, Anchored = false })
+		end
+		if s.mesh then
+			table.insert(meshes, { Part = p })
+			table.insert(meshProps, { Part = p, MeshType = s.mesh.type, MeshId = s.mesh.id,
+				TextureId = s.mesh.tex, Scale = s.mesh.scale })
+		end
+	end
+
+	local jobs = 6
+	local function job(fn)
+		task.spawn(function()
+			pcall(fn)
+			jobs -= 1
+		end)
+	end
+	job(function() api("SyncResize", resize) end)
+	job(function() api("SyncColor", color) end)
+	job(function() api("SyncMaterial", material) end)
+	job(function() api("SyncCollision", collision) end)
+	job(function() if #anchor > 0 then api("SyncAnchor", anchor) end end)
+	job(function()
+		if #meshes > 0 then
+			api("CreateMeshes", meshes)
+			api("SyncMesh", meshProps)
+		end
+	end)
+	while jobs > 0 do RunService.Heartbeat:Wait() end
+
+	-- 3) restore the current form look (mesh swaps, colors, eyes, face)
+	if made.head then faceMade = false end
+	pcall(applyForm, form)
+	return true
+end
+
+local watchConn = RunService.Heartbeat:Connect(function()
+	if not alive or rebuilding then return end
+	local missing = {}
+	for name in pairs(specs) do
+		local p = P[name]
+		if not p or not p.Parent then
+			table.insert(missing, name)
+		end
+	end
+	if #missing == 0 then return end
+	rebuilding = true
+	task.spawn(function()
+		if not rebuild(missing) then
+			task.wait(.25)
+		end
+		rebuilding = false
+	end)
+end)
+
 ---------------------------------------------------------------- Cleanup
 local buttonGui -- mobile buttons, created at the bottom
 
@@ -756,6 +838,7 @@ local function cleanup()
 	alive = false
 	conn:Disconnect()
 	steppedConn:Disconnect()
+	watchConn:Disconnect()
 	faceOff()
 	if buttonGui then buttonGui:Destroy() end
 	local list = {}
@@ -776,6 +859,7 @@ hum.Died:Connect(function()
 	alive = false
 	conn:Disconnect()
 	steppedConn:Disconnect()
+	watchConn:Disconnect()
 	if buttonGui then buttonGui:Destroy() end
 end)
 
