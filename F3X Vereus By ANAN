@@ -1,0 +1,851 @@
+-- VEREUS showcase, VISUAL ONLY, built through F3X SyncAPI so other players see it
+-- LocalScript for StarterPlayerScripts. Keep the F3X tool in your Backpack.
+-- PC keys / mobile buttons:
+-- Z = white form   X = red form (press the same key again to go back)
+-- Q = red eye stare   E = doom pillars   T = unleashed evil ball   P = remove everything
+-- Nothing here damages, moves or deletes other players.
+--
+-- Smooth mode: parts are un-anchored through F3X and driven from your client every frame.
+-- If the server doesn't accept that, it falls back to anchored SyncMove workers automatically.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
+local hum = char:WaitForChild("Humanoid")
+
+-- PC aims with the mouse, mobile aims where the camera is pointing
+local realMouse = player:GetMouse()
+local mouse = setmetatable({}, {
+	__index = function(_, k)
+		if k == "Hit" and not UIS.MouseEnabled then
+			local cam = workspace.CurrentCamera
+			return CFrame.new(cam.CFrame.Position + cam.CFrame.LookVector * 150)
+		end
+		return realMouse[k]
+	end,
+})
+
+local V = Vector3.new
+local V0 = Vector3.zero
+local function C(...) return CFrame.new(...) end
+local function A(x, y, z) return CFrame.Angles(math.rad(x), math.rad(y), math.rad(z)) end
+local sin = math.sin
+
+local USE_PHYSICS = true       -- smooth client-driven mode (auto falls back if it doesn't work)
+local PILLAR_COUNT = 14        -- lower this if the server lags
+local WORKERS_PER_GROUP = 3    -- only used by the fallback mode
+local WALK_SPEED = 92          -- matches the walk animation (from the original script)
+local FORM2_SPEED = 155        -- speed in the white form (Z), like the original
+
+-- fallback mode: every part has its own group, each group gets its own workers
+local GROUPS = {
+	{ "head" }, { "mask" }, { "horns" },
+	{ "eye1" }, { "eye2" }, { "eye3" }, { "eye4" }, { "light" },
+	{ "hand1" }, { "hand2" }, { "mg1" }, { "mg2" },
+}
+
+---------------------------------------------------------------- F3X
+local endpoint
+repeat
+	for _, holder in ipairs({ player.Backpack, char }) do
+		for _, tool in ipairs(holder:GetChildren()) do
+			if tool:IsA("Tool") and tool:FindFirstChild("SyncAPI") then
+				endpoint = tool.SyncAPI:FindFirstChild("ServerEndpoint")
+			end
+		end
+	end
+	if not endpoint then task.wait(0.5) end
+until endpoint
+
+local function api(...)
+	return endpoint:InvokeServer(...)
+end
+
+---------------------------------------------------------------- Colors and part specs
+local BLACK = BrickColor.new("Really black").Color
+local WHITE = BrickColor.new("White").Color
+local CRIMSON = BrickColor.new("Crimson").Color
+local RED = BrickColor.new("Really red").Color
+
+local specs = {
+	head = { size = V(4.75, 4.89, 4.77), color = BLACK, mat = Enum.Material.SmoothPlastic,
+		mesh = { type = Enum.MeshType.Head, scale = V(1.25, 1.25, 1.25) } },
+	mask = { size = V(.1, .39, .1), color = WHITE, mat = Enum.Material.CorrodedMetal,
+		mesh = { id = "rbxassetid://5158270", tex = "rbxassetid://128212042", scale = V(.7, .5, .5) } },
+	horns = { size = V(.1, .1, .1), color = BLACK, mat = Enum.Material.Slate,
+		mesh = { id = "rbxassetid://434078905", tex = "", scale = V(13, 12, 12) } },
+	hand1 = { size = V(.1, .1, .1), color = WHITE, mat = Enum.Material.Slate,
+		mesh = { id = "rbxassetid://37241605", tex = "", scale = V(8, 8, 8) } },
+	hand2 = { size = V(.1, .1, .1), color = WHITE, mat = Enum.Material.Slate,
+		mesh = { id = "rbxassetid://2899129749", tex = "", scale = V(.8, .8, .8) } },
+	mg1 = { shape = "Ball", size = V(4, 4, 4), color = BLACK, mat = Enum.Material.Neon },
+	mg2 = { shape = "Ball", size = V(4, 4, 4), color = BLACK, mat = Enum.Material.Neon },
+	eye1 = { shape = "Ball", size = V(3.25, 3.25, 3.25), color = BLACK, mat = Enum.Material.Glass },
+	eye2 = { shape = "Ball", size = V(3.25, 3.25, 3.25), color = BLACK, mat = Enum.Material.Glass },
+	eye3 = { shape = "Ball", size = V(.4, .4, .4), color = CRIMSON, mat = Enum.Material.Neon },
+	eye4 = { shape = "Ball", size = V(.4, .4, .4), color = CRIMSON, mat = Enum.Material.Neon },
+	light = { size = V(2.42, 2, .516), color = WHITE, mat = Enum.Material.Neon, transparency = 1 },
+}
+
+-- weld style offsets from the original script (position = parent * C0:Inverse())
+local EYE1_C0 = C(.6, -.2, 1.25)
+local EYE2_C0 = C(-.6, -.2, 1.25)
+local EYE3_C0 = C(-1.2, -.3, 2.65)
+local EYE4_C0 = C(1.2, -.3, 2.65)
+local LIGHT_C0 = C(0, .9, 2.595)
+local MG_C0 = C(0, 2.7, -4)
+
+local forms = {
+	[1] = {
+		horns = { id = "rbxassetid://434078905", tex = "", scale = V(13, 12, 12), c0 = C(0, -3.3, .82) * A(0, 180, 0) },
+		mask = { id = "rbxassetid://5158270", tex = "rbxassetid://128212042", scale = V(.7, .5, .5), c0 = C(0, -2.4, 0) * A(90, 0, 0) },
+		hand = WHITE, eyes = true, light = false, face = false,
+	},
+	[2] = {
+		horns = { id = "rbxassetid://193760002", tex = "rbxassetid://379225327", scale = V(5.41, 5.41, 5.41), c0 = C(0, -2.75, -1.7) },
+		mask = { id = "rbxassetid://13520257", tex = "rbxassetid://13520260", scale = V(5.53, 5, 5.1), c0 = C(0, 0, 2.5) },
+		hand = WHITE, eyes = false, light = true, face = false,
+	},
+	[3] = {
+		horns = { id = "rbxassetid://398618628", tex = "rbxassetid://1461382301", scale = V(4.9, 5.5, 5.8), c0 = C(0, 3.8, -4.5) },
+		mask = { id = "rbxassetid://64560176", tex = "rbxassetid://1326186614", scale = V(5.04, 5.04, 5.04), c0 = C(0, 1.45, -.4) },
+		hand = BLACK, eyes = false, light = false, face = true,
+	},
+}
+
+local form = 1
+local hornsC0 = forms[1].horns.c0
+local maskC0 = forms[1].mask.c0
+
+---------------------------------------------------------------- Spawn the rig (all parts in parallel)
+local P = {}
+local pending = 0
+
+for name, s in pairs(specs) do
+	pending += 1
+	task.spawn(function()
+		local cf = root.CFrame
+		local p = api("CreatePart", s.shape or "Normal", cf, workspace)
+		if p then
+			api("SyncResize", { { Part = p, CFrame = cf, Size = s.size } })
+			api("SyncColor", { { Part = p, Color = s.color, UnanchorAfter = false } })
+			api("SyncMaterial", { { Part = p, Material = s.mat, Transparency = s.transparency or 0 } })
+			api("SyncCollision", { { Part = p, CanCollide = false } })
+			if s.mesh then
+				api("CreateMeshes", { { Part = p } })
+				api("SyncMesh", { { Part = p, MeshType = s.mesh.type, MeshId = s.mesh.id,
+					TextureId = s.mesh.tex, Scale = s.mesh.scale } })
+			end
+			P[name] = p
+		end
+		pending -= 1
+	end)
+end
+repeat task.wait() until pending == 0
+
+-- hide the real character through F3X
+do
+	local list = {}
+	for _, v in ipairs(char:GetDescendants()) do
+		if v:IsA("BasePart") and v ~= root then
+			table.insert(list, { Part = v, Transparency = 1 })
+		end
+	end
+	api("SyncMaterial", list)
+end
+
+-- smooth mode: un-anchor the rig so your client can drive it every frame
+local usePhysics = USE_PHYSICS
+if usePhysics then
+	local list = {}
+	for _, p in pairs(P) do
+		table.insert(list, { Part = p, Anchored = false })
+	end
+	api("SyncAnchor", list)
+end
+
+---------------------------------------------------------------- State
+local alive = true
+local attacking = false
+local sine = 0
+local change = .5
+local override = nil -- function returning rootC0, hand1C0, hand2C0, alpha
+local origWS = hum.WalkSpeed
+local origHip = hum.HipHeight
+local lastHead = root.CFrame
+local rtt = 0.1          -- measured round trip (fallback mode)
+local target = {}        -- latest CFrame for every part, computed once per frame
+local lastApplied = {}
+
+local function normalWS()
+	return (form == 2) and FORM2_SPEED or WALK_SPEED
+end
+hum.WalkSpeed = normalWS()
+
+local pose = {
+	root = CFrame.new(),
+	h1 = C(4.5, -5, 6) * A(10, -5, -36),
+	h2 = C(-5, -5, 6) * A(13, 36, 35),
+}
+
+---------------------------------------------------------------- Poses from the original script
+local function idlePose()
+	local h1 = C(4.5, -5 + .5 * sin(sine / 14), 6) * A(10 + sin(sine / 13), -5 + 5 * sin(sine / 12), -36 - 4 * sin(sine / 11))
+	local h2 = C(-5, -5 + .5 * sin(sine / 14), 6) * A(13 - 3 * sin(sine / 12), 36 - 3 * sin(sine / 13), 35 + 2 * sin(sine / 11))
+	return A(5 * sin(sine / 12), 0, 0), h1, h2, .2
+end
+
+local function walkPose()
+	if form == 2 then
+		local h1 = C(5.9, -7, 5) * A(212 + 3 * sin(sine / 6), -25, 2 * sin(sine / 6))
+		local h2 = C(-5.9, -7, 5) * A(212 + 3 * sin(sine / 6), 25, 2 * sin(sine / 6))
+		return CFrame.new(), h1, h2, .2
+	end
+	local s = sin(sine / 3.5)
+	local h1 = C(4.2 + s, -5 + .5 * s, 6) * A(150 + 120 * s, 30 * s, -17 * s)
+	local h2 = C(-4.2 + s, -5 + .5 * s, 6) * A(150 + 120 * -s, 30 * s, -17 * s)
+	local r = C(0, sin(sine / 1.75), 0) * A(5 * s, 10 * s, 0)
+	return r, h1, h2, .2
+end
+
+local function neckTilt()
+	local d = mouse.Hit.Position - root.Position
+	local flat = math.max(V(d.X, 0, d.Z).Magnitude, 1)
+	local pitch = math.clamp(math.atan2(d.Y - 3, flat), -.5, .5)
+	return CFrame.Angles(pitch * .6, 0, 0)
+end
+
+---------------------------------------------------------------- Facing the mouse during moves
+local gyro
+local function faceOn()
+	if gyro then gyro:Destroy() end
+	gyro = Instance.new("BodyGyro")
+	gyro.D = 175
+	gyro.P = 20000
+	gyro.MaxTorque = V(0, 9000, 0)
+	gyro.CFrame = root.CFrame
+	gyro.Parent = root
+end
+local function faceOff()
+	if gyro then gyro:Destroy() gyro = nil end
+end
+
+local function lock()
+	attacking = true
+	hum.WalkSpeed = 0
+end
+local function unlock()
+	override = nil
+	attacking = false
+	hum.WalkSpeed = normalWS()
+	faceOff()
+end
+
+local function hold(frames, fn)
+	override = fn
+	task.wait(frames / 60)
+end
+
+---------------------------------------------------------------- Per-frame target computation
+local function compute()
+	local lead = usePhysics and 0 or math.clamp(rtt * .5, .02, .15)
+	local rootCF = root.CFrame + root.AssemblyLinearVelocity * lead
+	local torso = rootCF * pose.root
+	local head = torso * C(0, 1.5, 0) * neckTilt()
+	lastHead = head
+	local h1 = torso * pose.h1:Inverse()
+	local h2 = torso * pose.h2:Inverse()
+	target.head = head
+	target.mask = head * maskC0:Inverse()
+	target.horns = head * hornsC0:Inverse()
+	target.hand1 = h1
+	target.hand2 = h2
+	target.mg1 = h1 * MG_C0:Inverse()
+	target.mg2 = h2 * MG_C0:Inverse()
+	target.eye1 = head * EYE1_C0:Inverse()
+	target.eye2 = head * EYE2_C0:Inverse()
+	target.eye3 = head * EYE3_C0:Inverse()
+	target.eye4 = head * EYE4_C0:Inverse()
+	target.light = head * LIGHT_C0:Inverse()
+end
+
+local function apply()
+	if not usePhysics then return end
+	for name, cf in pairs(target) do
+		local p = P[name]
+		if p then
+			p.CFrame = cf
+			p.AssemblyLinearVelocity = V0
+			p.AssemblyAngularVelocity = V0
+			lastApplied[name] = cf
+		end
+	end
+end
+
+---------------------------------------------------------------- Fallback workers (anchored SyncMove, used only if smooth mode fails)
+local function differs(a, b)
+	return not a
+		or (a.Position - b.Position).Magnitude > .02
+		or (a.LookVector - b.LookVector).Magnitude > .002
+		or (a.UpVector - b.UpVector).Magnitude > .002
+end
+
+local function startGroup(names)
+	local last = {} -- shared by every worker of this group
+	for w = 1, WORKERS_PER_GROUP do
+		task.spawn(function()
+			task.wait((w - 1) * .02) -- stagger the workers
+			while alive do
+				RunService.Heartbeat:Wait()
+				local list = {}
+				for _, n in ipairs(names) do
+					local cf, p = target[n], P[n]
+					if cf and p and differs(last[n], cf) then
+						last[n] = cf
+						table.insert(list, { Part = p, CFrame = cf })
+					end
+				end
+				if #list > 0 then
+					local t0 = os.clock()
+					local ok = pcall(api, "SyncMove", list)
+					if ok then
+						rtt = rtt * .85 + (os.clock() - t0) * .15
+					end
+				end
+			end
+		end)
+	end
+end
+
+local function startWorkers()
+	for _, names in ipairs(GROUPS) do
+		startGroup(names)
+	end
+end
+
+local function fallback()
+	usePhysics = false
+	local list = {}
+	for _, p in pairs(P) do
+		table.insert(list, { Part = p, Anchored = true })
+	end
+	pcall(api, "SyncAnchor", list)
+	startWorkers()
+	warn("[Vereus] smooth mode was not accepted, using anchored sync workers")
+end
+
+if not usePhysics then
+	startWorkers()
+end
+
+---------------------------------------------------------------- Main update loops
+local probing = false
+local probeChecked, probeDrift = 0, 0
+if usePhysics then
+	task.delay(1, function() probing = true end)
+end
+
+local conn = RunService.RenderStepped:Connect(function(dt)
+	if not alive then return end
+	sine += change * 60 * dt
+	hum.HipHeight = 5.8 + .95 * sin(sine / 12)
+
+	if gyro then
+		local h = mouse.Hit.Position
+		local k = 1 - (1 - .2) ^ (dt * 60)
+		gyro.CFrame = gyro.CFrame:Lerp(CFrame.new(root.Position, V(h.X, root.Position.Y, h.Z)), k)
+	end
+
+	local tr, t1, t2, a
+	if override then
+		tr, t1, t2, a = override()
+	elseif hum.MoveDirection.Magnitude > .1 then
+		tr, t1, t2, a = walkPose()
+	else
+		tr, t1, t2, a = idlePose()
+	end
+	local k = 1 - (1 - a) ^ (dt * 60)
+	pose.root = pose.root:Lerp(tr, k)
+	pose.h1 = pose.h1:Lerp(t1, k)
+	pose.h2 = pose.h2:Lerp(t2, k)
+
+	compute()
+	apply()
+end)
+
+-- runs right before each physics step: keeps the rig pinned (no gravity drift) and checks ownership
+local steppedConn = RunService.Stepped:Connect(function()
+	if not alive then return end
+	if probing and usePhysics then
+		for _, n in ipairs({ "head", "hand1", "hand2" }) do
+			local p, la = P[n], lastApplied[n]
+			if p and la and (p.Position - la.Position).Magnitude > 2 then
+				probeDrift += 1
+			end
+		end
+		probeChecked += 3
+		if probeChecked >= 270 then
+			probing = false
+			if probeDrift > 90 then
+				fallback()
+			end
+		end
+	end
+	apply()
+end)
+
+---------------------------------------------------------------- Effect helpers
+local function quick(shape, cf, size, color, transparency)
+	local p = api("CreatePart", shape, cf, workspace)
+	if not p then return end
+	api("SyncResize", { { Part = p, CFrame = cf, Size = size } })
+	api("SyncColor", { { Part = p, Color = color, UnanchorAfter = false } })
+	api("SyncMaterial", { { Part = p, Material = Enum.Material.Neon, Transparency = transparency or 0 } })
+	api("SyncCollision", { { Part = p, CanCollide = false } })
+	return p
+end
+
+local function ring(pos, color, grow)
+	task.spawn(function()
+		local cf = CFrame.new(pos)
+		local p = api("CreatePart", "Normal", cf, workspace)
+		if not p then return end
+		api("SyncResize", { { Part = p, CFrame = cf, Size = V(1, 1, 1) } })
+		api("SyncColor", { { Part = p, Color = color, UnanchorAfter = false } })
+		api("SyncMaterial", { { Part = p, Material = Enum.Material.Neon, Transparency = .3 } })
+		api("SyncCollision", { { Part = p, CanCollide = false } })
+		api("CreateMeshes", { { Part = p } })
+		for i = 1, 14 do
+			local g = 10 + i * (grow or 12)
+			api("SyncMesh", { { Part = p, MeshId = "rbxassetid://20329976", Scale = V(g, 1, g) } })
+			api("SyncMaterial", { { Part = p, Transparency = .3 + i * .05 } })
+			task.wait(.04)
+		end
+		api("Remove", { p })
+	end)
+end
+
+local function flash(pos, color, maxSize)
+	task.spawn(function()
+		local p = quick("Ball", CFrame.new(pos), V(4, 4, 4), color)
+		if not p then return end
+		for i = 1, 12 do
+			local sz = 4 + i * ((maxSize or 110) / 12)
+			api("SyncResize", { { Part = p, CFrame = CFrame.new(pos), Size = V(sz, sz, sz) } })
+			api("SyncMaterial", { { Part = p, Transparency = i / 12 } })
+			task.wait(.04)
+		end
+		api("Remove", { p })
+	end)
+end
+
+local function groundAt(pos)
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = { char }
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local r = workspace:Raycast(pos + V(0, 60, 0), V(0, -300, 0), params)
+	return r and r.Position or V(pos.X, root.Position.Y - 6, pos.Z)
+end
+
+---------------------------------------------------------------- Forms (mask, horns, eyes, face, hand colors)
+local faceMade = false
+local function setFace(on)
+	pcall(function()
+		if on and not faceMade then
+			api("CreateDecorations", { { Part = P.head, DecorationType = "Decal" } })
+			api("SyncDecorate", { { Part = P.head, DecorationType = "Decal",
+				Texture = "rbxassetid://1127768638", Face = Enum.NormalId.Front, Transparency = 0 } })
+			faceMade = true
+		elseif faceMade then
+			api("SyncDecorate", { { Part = P.head, DecorationType = "Decal", Transparency = on and 0 or 1 } })
+		end
+	end)
+end
+
+local function applyForm(n)
+	form = n
+	local f = forms[n]
+	hornsC0 = f.horns.c0
+	maskC0 = f.mask.c0
+	api("SyncMesh", {
+		{ Part = P.horns, MeshId = f.horns.id, TextureId = f.horns.tex, Scale = f.horns.scale },
+		{ Part = P.mask, MeshId = f.mask.id, TextureId = f.mask.tex, Scale = f.mask.scale },
+	})
+	api("SyncColor", {
+		{ Part = P.hand1, Color = f.hand, UnanchorAfter = false },
+		{ Part = P.hand2, Color = f.hand, UnanchorAfter = false },
+	})
+	local tv = f.eyes and 0 or 1
+	api("SyncMaterial", {
+		{ Part = P.eye1, Transparency = tv }, { Part = P.eye2, Transparency = tv },
+		{ Part = P.eye3, Transparency = tv }, { Part = P.eye4, Transparency = tv },
+		{ Part = P.light, Transparency = f.light and 0 or 1 },
+	})
+	setFace(f.face)
+end
+
+local function summonPose(amp, a)
+	return function()
+		local s = sin(sine)
+		return A(-50, 0, 0),
+			C(-2, -2, -4) * A(-50 + amp * s, 180 + (amp / 2) * s, 30 + amp * s),
+			C(2, -2, -4) * A(-50 + amp * s, 180 - (amp / 2) * s, -30 - amp * s),
+			a
+	end
+end
+
+local function transform(n)
+	if attacking then return end
+	if n == form then n = 1 end
+	lock()
+	hold(70, summonPose(2, .1))
+	hold(40, summonPose(4, .05))
+
+	local fx = (n == 3) and RED or WHITE
+	local pos = root.Position
+	applyForm(n)
+	flash(pos, fx, 110)
+	ring(pos - V(0, 4, 0), fx, 12)
+	ring(pos - V(0, 4, 0), fx, 20)
+
+	if n == 2 then
+		hold(30, function()
+			return A(30, 0, 0), C(-2, -2, -4) * A(-50, 180, 30), C(2, -2, -4) * A(-50, 180, -30), .1
+		end)
+		hold(50, function()
+			local s = sin(sine)
+			return A(30, 0, 0),
+				C(-2, -2, -4) * A(-140 + 2 * s, 180 + s, 30 + 2 * s),
+				C(2, -2, -4) * A(-140 + 2 * s, 180 - s, -30 - 2 * s), .03
+		end)
+		hold(50, function()
+			local s = sin(sine)
+			return A(30, 0, 0),
+				C(-2, -2, -4) * A(-140 + 8 * s, 180 + 5 * s, 30 + 8 * s),
+				C(2, -2, -4) * A(-140 + 8 * s, 180 - 5 * s, -30 - 8 * s), .03
+		end)
+	end
+	unlock()
+end
+
+---------------------------------------------------------------- Q: red eye stare
+local function stare()
+	if attacking then return end
+	lock()
+	faceOn()
+	local glowParts = (form == 1) and { P.eye1, P.eye2 } or { P.light }
+	local on, off = {}, {}
+	for _, p in ipairs(glowParts) do
+		table.insert(on, { Part = p, Color = CRIMSON, UnanchorAfter = false })
+		table.insert(off, { Part = p, Color = (form == 1) and BLACK or WHITE, UnanchorAfter = false })
+	end
+	local matOn, matOff = {}, {}
+	for _, p in ipairs(glowParts) do
+		table.insert(matOn, { Part = p, Material = Enum.Material.Neon })
+		table.insert(matOff, { Part = p, Material = (form == 1) and Enum.Material.Glass or Enum.Material.Neon })
+	end
+	api("SyncColor", on)
+	api("SyncMaterial", matOn)
+	ring(lastHead.Position, RED, 14)
+	hold(20, function()
+		return A(-15, 0, 0), C(-2, -2, -4) * A(-50, 180, 10), C(2, -2, -4) * A(-50, 180, -10), .2
+	end)
+	hold(120, summonPose(2, .05))
+	api("SyncColor", off)
+	api("SyncMaterial", matOff)
+	unlock()
+end
+
+---------------------------------------------------------------- E: doom pillars (cosmetic only)
+local function pillar(pos)
+	task.spawn(function()
+		local ground = groundAt(pos)
+		local size = 6 * math.random(4, 8)
+		local discCF = CFrame.new(ground + V(0, 2, 0)) * A(90, 90, 0)
+		local disc = quick("Cylinder", discCF, V(4, size, size), BLACK, 1)
+		if not disc then return end
+		for i = 1, 5 do
+			api("SyncMaterial", { { Part = disc, Transparency = 1 - i * .2 } })
+			task.wait(.05)
+		end
+		task.wait(1)
+		local h = 70 + math.random(10, 33)
+		local topPos = ground + V(0, 72 + h / 2, 0)
+		local beam = quick("Normal", CFrame.new(topPos), V(9, h, 9), BLACK, .3)
+		if not beam then return end
+		local landPos = ground + V(0, 2 + h / 2, 0)
+		for i = 1, 5 do
+			local p = topPos:Lerp(landPos, i / 5)
+			api("SyncMove", { { Part = beam, CFrame = CFrame.new(p) } })
+			task.wait(.04)
+		end
+		ring(ground, WHITE, 10)
+		ring(ground, WHITE, 16)
+		task.wait(4)
+		for i = 1, 6 do
+			local p = landPos - V(0, i * 8, 0)
+			api("SyncMove", { { Part = beam, CFrame = CFrame.new(p) } })
+			api("SyncMaterial", { { Part = beam, Transparency = .3 + i * .11 } })
+			task.wait(.05)
+		end
+		api("Remove", { beam })
+		for i = 1, 5 do
+			api("SyncResize", { { Part = disc, CFrame = discCF, Size = V(4 + i * 3, size + i * 3, size + i * 3) } })
+			api("SyncMaterial", { { Part = disc, Transparency = i * .2 } })
+			task.wait(.05)
+		end
+		api("Remove", { disc })
+	end)
+end
+
+local function doomPillars()
+	if attacking then return end
+	lock()
+	faceOn()
+	local bwoo = Instance.new("Sound", root) -- local sound only
+	bwoo.SoundId = "rbxassetid://134012322"
+	bwoo.Volume = 3
+	bwoo.Pitch = .85
+	bwoo:Play()
+	game:GetService("Debris"):AddItem(bwoo, 7)
+
+	hold(75, function()
+		return A(0, 0, 0),
+			C(5.2 + .6 * sin(sine / 14), -5, 6) * A(15 * sin(sine / 12), 16 * sin(sine / 14), 0),
+			C(-5.2 + .6 * sin(sine / 14), -5, 6) * A(-15 * sin(sine / 12), -16 * sin(sine / 14), 0), .2
+	end)
+	hold(25, function()
+		return A(25, 0, 0),
+			C(5.2, -5, 6) * A(-94 + 8 * sin(sine / 12), 3 * sin(sine / 10), 0),
+			C(-5.2, -5, 6) * A(-94 - 8 * sin(sine / 12), -3 * sin(sine / 10), 0), .2
+	end)
+	hold(3, function()
+		return A(0, 0, 0),
+			C(5.2, -5, 6) * A(-76 + 8 * sin(sine / 12), 3 * sin(sine / 10), 0),
+			C(-5.2, -5, 6) * A(-76 - 8 * sin(sine / 12), -3 * sin(sine / 10), 0), .2
+	end)
+
+	override = function()
+		return A(-30, 0, 0),
+			C(5.2, -2, 7.2 + .95 * sin(sine / 12)) * A(45, -9, 0),
+			C(-5.2, -2, 7.2 + .95 * sin(sine / 12)) * A(45, 9, 0), .2
+	end
+	local look = root.CFrame.LookVector
+	local right = root.CFrame.RightVector
+	local origin = root.Position
+	for i = 1, PILLAR_COUNT do
+		local dist = 45 + (i / PILLAR_COUNT) * 235
+		local lateral = math.random(-30, 30)
+		pillar(origin + look * dist + right * lateral)
+		task.wait(90 / 60 / PILLAR_COUNT)
+	end
+	task.wait(.3)
+	unlock()
+end
+
+---------------------------------------------------------------- T: unleashed evil ball (cosmetic only)
+local function evilBall()
+	if attacking then return end
+	lock()
+	faceOn()
+	local ball
+	local started = os.clock()
+	local charging = true
+
+	task.spawn(function()
+		local lastRing = 0
+		while charging and alive do
+			local torso = root.CFrame * pose.root
+			local hand = torso * pose.h1:Inverse()
+			local cf = hand * C(0, 0, -3)
+			local sz = .1 + math.clamp((os.clock() - started) / 4.17, 0, 1) * 5
+			if not ball then
+				ball = quick("Ball", cf, V(sz, sz, sz), BLACK)
+			else
+				api("SyncResize", { { Part = ball, CFrame = cf, Size = V(sz, sz, sz) } })
+			end
+			if os.clock() - lastRing > .35 then
+				lastRing = os.clock()
+				ring(cf.Position, BLACK, 5)
+			end
+			task.wait(.05)
+		end
+	end)
+
+	hold(250, function()
+		return CFrame.new(),
+			C(6.5, 0, -1) * A(70, 90, 0),
+			C(6.5, 0, -5) * A(-110, 90, 0), .2
+	end)
+	hold(20, function()
+		return A(0, -35, 0),
+			C(4.5, -5 + .5 * sin(sine / 14), 6) * A(10 + sin(sine / 13), -5 + 5 * sin(sine / 12), -36 - 4 * sin(sine / 11)),
+			C(-4.5, 0, 7) * A(-90, 18, 37), .2
+	end)
+	charging = false
+	task.wait(.1)
+
+	override = function()
+		return A(0, 35, 0),
+			C(6, -5 + .5 * sin(sine / 14), 6) * A(20 + sin(sine / 13), -5 + 5 * sin(sine / 12), -36 - 4 * sin(sine / 11)),
+			C(-5.5, 0, 5) * A(30, -28, 37), .2
+	end
+
+	if ball then
+		local pos = ball.Position
+		local dir = (mouse.Hit.Position - pos)
+		dir = dir.Magnitude > 1 and dir.Unit or root.CFrame.LookVector
+		local params = RaycastParams.new()
+		params.FilterDescendantsInstances = { char, ball }
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		local hitPos
+		for _ = 1, 60 do
+			local step = dir * 15
+			local r = workspace:Raycast(pos, step, params)
+			if r then hitPos = r.Position break end
+			pos += step
+			api("SyncMove", { { Part = ball, CFrame = CFrame.new(pos) } })
+			task.wait(.05)
+		end
+		hitPos = hitPos or pos
+		api("SyncMove", { { Part = ball, CFrame = CFrame.new(hitPos) } })
+		flash(hitPos, BLACK, 220)
+		ring(hitPos - V(0, 3, 0), BLACK, 22)
+		ring(hitPos - V(0, 3, 0), WHITE, 34)
+		for i = 1, 20 do
+			local sz = 5 + i * 10
+			api("SyncResize", { { Part = ball, CFrame = CFrame.new(hitPos), Size = V(sz, sz, sz) } })
+			api("SyncMaterial", { { Part = ball, Transparency = i / 20 } })
+			task.wait(.04)
+		end
+		api("Remove", { ball })
+	end
+	task.wait(.3)
+	unlock()
+end
+
+---------------------------------------------------------------- Eye blink (form 1)
+task.spawn(function()
+	while alive do
+		task.wait(5)
+		if form == 1 and alive and P.eye3 and P.eye4 then
+			local function setY(y)
+				local h = lastHead
+				api("SyncResize", {
+					{ Part = P.eye3, CFrame = h * EYE3_C0:Inverse(), Size = V(.4, y, .4) },
+					{ Part = P.eye4, CFrame = h * EYE4_C0:Inverse(), Size = V(.4, y, .4) },
+				})
+			end
+			pcall(function()
+				for i = 1, 9 do setY(.4 - i * .035) task.wait(.03) end
+				for i = 9, 0, -1 do setY(.4 - i * .035) task.wait(.03) end
+			end)
+		end
+	end
+end)
+
+---------------------------------------------------------------- Cleanup
+local buttonGui -- mobile buttons, created at the bottom
+
+local function cleanup()
+	if not alive then return end
+	alive = false
+	conn:Disconnect()
+	steppedConn:Disconnect()
+	faceOff()
+	if buttonGui then buttonGui:Destroy() end
+	local list = {}
+	for _, p in pairs(P) do table.insert(list, p) end
+	api("Remove", list)
+	local show = {}
+	for _, v in ipairs(char:GetDescendants()) do
+		if v:IsA("BasePart") and v ~= root then
+			table.insert(show, { Part = v, Transparency = 0 })
+		end
+	end
+	pcall(api, "SyncMaterial", show)
+	hum.HipHeight = origHip
+	hum.WalkSpeed = origWS
+end
+
+hum.Died:Connect(function()
+	alive = false
+	conn:Disconnect()
+	steppedConn:Disconnect()
+	if buttonGui then buttonGui:Destroy() end
+end)
+
+---------------------------------------------------------------- PC input (keyboard)
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe or not alive then return end
+	local k = input.KeyCode
+	if k == Enum.KeyCode.Z then
+		task.spawn(transform, 2)
+	elseif k == Enum.KeyCode.X then
+		task.spawn(transform, 3)
+	elseif k == Enum.KeyCode.Q then
+		task.spawn(stare)
+	elseif k == Enum.KeyCode.E then
+		task.spawn(doomPillars)
+	elseif k == Enum.KeyCode.T then
+		task.spawn(evilBall)
+	elseif k == Enum.KeyCode.P then
+		cleanup()
+	end
+end)
+
+---------------------------------------------------------------- Mobile input (on-screen buttons)
+if UIS.TouchEnabled then
+	buttonGui = Instance.new("ScreenGui")
+	buttonGui.Name = "VereusButtons"
+	buttonGui.ResetOnSpawn = false
+	buttonGui.Parent = player:WaitForChild("PlayerGui")
+
+	local actions = {
+		{ "Z", function() transform(2) end },
+		{ "X", function() transform(3) end },
+		{ "Q", stare },
+		{ "E", doomPillars },
+		{ "T", evilBall },
+		{ "P", cleanup },
+	}
+
+	local SIZE, GAP = 58, 8
+	for i, a in ipairs(actions) do
+		local col = (i - 1) % 2
+		local row = math.floor((i - 1) / 2)
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.fromOffset(SIZE, SIZE)
+		b.AnchorPoint = Vector2.new(1, .5)
+		b.Position = UDim2.new(1, -12 - col * (SIZE + GAP), .5, (row - 1) * (SIZE + GAP))
+		b.BackgroundColor3 = Color3.new(0, 0, 0)
+		b.BackgroundTransparency = .35
+		b.Text = a[1]
+		b.TextColor3 = Color3.new(1, 1, 1)
+		b.TextScaled = true
+		b.Font = Enum.Font.GothamBold
+		b.AutoButtonColor = true
+		b.Parent = buttonGui
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 12)
+		corner.Parent = b
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.new(1, 1, 1)
+		stroke.Transparency = .5
+		stroke.Thickness = 1.5
+		stroke.Parent = b
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop = UDim.new(0, 12)
+		pad.PaddingBottom = UDim.new(0, 12)
+		pad.Parent = b
+
+		b.Activated:Connect(function()
+			if alive then task.spawn(a[2]) end
+		end)
+	end
+end
