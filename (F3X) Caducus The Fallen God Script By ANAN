@@ -1,0 +1,952 @@
+-- CADUCUS THE FALLEN GOD, VISUAL ONLY, built through F3X SyncAPI so other players see it
+-- Keep the F3X tool in your Backpack.
+-- PC keys / mobile buttons:
+-- Click = Wretched Row   Z = Spectral Sprint (toggle)   X = Vile Vault   C = The Spire
+-- V = Blot Out The Sun   B = Then Make a New One   M = The Cataclyst   P = remove everything
+-- Nothing here damages, captures or deletes other players (Capture and all damage code are left out).
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
+local hum = char:WaitForChild("Humanoid")
+local realMouse = player:GetMouse()
+
+local V = Vector3.new
+local V0 = Vector3.zero
+local function C(...) return CFrame.new(...) end
+local function A(x, y, z) return CFrame.Angles(math.rad(x), math.rad(y), math.rad(z)) end
+local Ang = CFrame.Angles
+local sin, cos = math.sin, math.cos
+
+-- Anchored, server-synchronized visual rig.
+local USE_PHYSICS = false
+local WALK_SPEED = 8
+local WORKERS = 4
+local PREDICTION_TIME = 0.10
+local MAX_PREDICTION_DISTANCE = 2.5
+local SYNC_INTERVAL = 1 / 10
+local SYNC_BATCH_SIZE = 20
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.FilterDescendantsInstances = { char }
+rayParams.RespectCanCollide = true
+
+local function aim()
+	if UIS.MouseEnabled then return realMouse.Hit.Position end
+	local cam = workspace.CurrentCamera
+	local r = workspace:Raycast(cam.CFrame.Position, cam.CFrame.LookVector * 500, rayParams)
+	return r and r.Position or (cam.CFrame.Position + cam.CFrame.LookVector * 150)
+end
+
+local function groundAt(pos)
+	local r = workspace:Raycast(pos + V(0, 400, 0), V(0, -800, 0), rayParams)
+	return r and r.Position or pos
+end
+
+---------------------------------------------------------------- F3X
+local endpoint
+repeat
+	for _, holder in ipairs({ player.Backpack, char }) do
+		for _, tool in ipairs(holder:GetChildren()) do
+			if tool:IsA("Tool") and tool:FindFirstChild("SyncAPI") then
+				endpoint = tool.SyncAPI:FindFirstChild("ServerEndpoint")
+			end
+		end
+	end
+	if not endpoint then task.wait(.5) end
+until endpoint
+
+local function api(...)
+	return endpoint:InvokeServer(...)
+end
+
+local function par(...)
+	local fns, n = { ... }, select("#", ...)
+	for _, f in ipairs(fns) do
+		task.spawn(function() pcall(f) n -= 1 end)
+	end
+	while n > 0 do RunService.Heartbeat:Wait() end
+end
+
+---------------------------------------------------------------- Colors and definitions
+local BLACK = BrickColor.new("Really black").Color
+local GREY = BrickColor.new("Smoky grey").Color
+local WHITE = BrickColor.new("White").Color
+local Neon, Smooth, Glass = Enum.Material.Neon, Enum.Material.SmoothPlastic, Enum.Material.Glass
+
+local tattooColor = Color3.fromRGB(0, 255, 0)
+do
+	local tt = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+	if tt then tattooColor = tt.Color end
+end
+
+local defs, order, rigNames = {}, {}, {}
+local function addPart(name, d)
+	defs[name] = d
+	order[#order + 1] = name
+	if d.rig then rigNames[#rigNames + 1] = name end
+end
+
+-- body (R6 style, black)
+addPart("torso", { size = V(2, 2, 1), color = BLACK, mat = Smooth, rig = true })
+addPart("head", { size = V(2, 1, 1), color = BLACK, mat = Smooth, rig = true,
+	mesh = { type = Enum.MeshType.Head, scale = V(1.25, 1.25, 1.25) } })
+addPart("halfhed", { size = V(2, 1, 1), color = BLACK, mat = Neon, rig = true,
+	mesh = { type = Enum.MeshType.Head, scale = V(1.26, .9, 1.26) } })
+addPart("larm", { size = V(1, 2, 1), color = BLACK, mat = Smooth, rig = true })
+addPart("rarm", { size = V(1, 2, 1), color = BLACK, mat = Smooth, rig = true })
+addPart("lleg", { size = V(1, 2, 1), color = BLACK, mat = Smooth, rig = true })
+addPart("rleg", { size = V(1, 2, 1), color = BLACK, mat = Smooth, rig = true })
+
+-- wing: W(material, size, block mesh scale (0 = none), C1 position, rotation rows)
+local R = {
+	a = { .889, .445, .111, .431, -.892, .133 }, b = { .213, .976, -.036, .964, -.204, .170 },
+	c = { .982, .111, .150, .099, -.991, .087 }, d = { .835, .542, .096, .527, -.838, .145 },
+	e = { .243, .970, -.030, .957, -.235, .171 }, f = { .889, .443, .111, .429, -.894, .133 },
+	g = { -.226, .968, -.106, .961, .240, .137 }, h = { .972, .187, .143, .174, -.980, .098 },
+	i = { .740, -.652, .166, -.654, -.755, -.051 }, j = { .469, -.872, .138, -.869, -.484, -.105 },
+	k = { .808, -.564, .170, -.568, -.822, -.033 }, l = { .977, .157, .146, .144, -.985, .094 },
+	m = { .738, -.654, .165, -.656, -.753, -.052 }, n = { .800, .594, .086, .579, -.801, .150 },
+	o = { .542, .840, .027, .825, -.538, .171 }, p = { .984, .097, .151, .085, -.993, .085 },
+	q = { .968, .209, .141, .196, -.975, .101 }, r = { .567, .823, .032, .808, -.564, .170 },
+	s = { .130, .990, -.050, .979, -.120, .166 }, t = { .953, -.248, .171, -.257, -.966, .028 },
+	u = { .857, .505, .102, .490, -.860, .140 }, v = { .734, -.659, .165, -.661, -.749, -.053 },
+	w = { .951, -.256, .171, -.264, -.964, .026 }, x = { .872, .478, .106, .463, -.876, .137 },
+	y = { .915, -.364, .173, -.370, -.929, .007 }, z = { .559, .828, .031, .814, -.556, .171 },
+	aa = { .858, .504, .102, .489, -.861, .140 },
+}
+local unpack = table.unpack
+local wingInv = {}
+local function W(m, sx, sy, sz, mx, my, mz, x, y, z, a, b, c, d, e, f, g, h, i)
+	local idx = #wingInv + 1
+	wingInv[idx] = CFrame.new(x, y, z, a, b, c, d, e, f, g or .1584, h or -.0704, i or -.9849):Inverse()
+	local dd = { size = V(sx, sy, sz), color = BLACK, rig = true,
+		mat = (m == "N") and Neon or ((m == "G") and Glass or Smooth) }
+	if m == "G" then
+		dd.trans = .5
+		dd.mesh = { type = Enum.MeshType.Cylinder, scale = V(1, 1, 1) }
+	elseif mx ~= 0 then
+		dd.mesh = { type = Enum.MeshType.Brick, scale = V(mx, my, mz) }
+	end
+	addPart("w" .. idx, dd)
+end
+
+W("N",.811,.2,.2, 1,.172,.826, -4.346,-.279,.975, unpack(R.a))
+W("N",.279,.2,.2, 1,.455,.826, -4.99,-5.527,.975, unpack(R.b))
+W("N",1.473,.2,.2, 1,.28,.826, -8.218,.595,.975, unpack(R.a))
+W("N",.289,.2,.2, 1,.115,.826, -4.899,-5.412,.975, unpack(R.b))
+W("S",1.013,.962,.2, 1,1,.807, -3.073,1.277,.976, unpack(R.c))
+W("N",5.427,.474,.2, 1,1,.766, -7.714,-.814,.979, unpack(R.d))
+W("S",.545,.225,.2, 1,1,.807, -.473,-10.887,.976, -.429,.894,-.133,.889,.443,.111)
+W("S",.402,.225,.2, 1,1,.807, -6.609,-7.142,.976, unpack(R.e))
+W("S",.528,.226,.2, 1,1,.807, -9.412,.361,.976, unpack(R.f))
+W("N",.95,.2,.2, 1,.208,.826, -3.037,.971,.975, unpack(R.c))
+W("N",3.739,.379,.2, 1,1,.766, -6.937,-.51,.979, unpack(R.d))
+W("S",1.52,1.028,.2, 1,1,.807, -4.394,.035,.976, unpack(R.f))
+W("S",.402,.225,.2, 1,1,.807, 6.649,-6.184,.976, -.957,.235,-.171,.243,.97,-.03)
+W("S",2.14,.418,.2, 1,1,.807, -6.429,.345,.976, unpack(R.f))
+W("S",.402,.225,.2, 1,1,.807, -5.125,-5.546,.976, unpack(R.e))
+W("S",.975,.804,.2, 1,1,.807, -2.65,-4.3,.976, .073,.996,-.059,.985,-.063,.163)
+W("N",5.808,.474,.2, 1,1,.766, -7.936,-.777,.979, unpack(R.d))
+W("N",.308,.2,.2, 1,.142,.826, -3.879,-.128,.975, .858,.503,.102,.488,-.862,.14)
+W("N",.457,.2,.2, 1,.23,.826, -.713,-3.628,.975, unpack(R.g))
+W("N",.422,.2,.2, 1,.257,.826, -.816,-3.928,.975, unpack(R.g))
+W("N",.487,.2,.2, 1,.103,.497, -1.571,.992,.99, unpack(R.i))
+W("N",.2,.2,.2, .838,.273,.497, -3.405,-1.884,.975, unpack(R.h))
+W("N",.885,.2,.2, 1,.168,.497, -4.063,1.568,.975, unpack(R.i))
+W("N",.2,.2,.2, .87,.069,.497, -3.351,-1.815,.975, unpack(R.h))
+W("S",.609,.578,.2, 1,1,.485, -.608,1.604,.976, unpack(R.j))
+W("N",3.26,.285,.2, 1,1,.46, -3.901,.811,.978, unpack(R.k))
+W("S",.327,.2,.2, 1,.677,.485, -1.164,-5.781,.975, .612,.79,.042,.775,-.609,.168)
+W("S",.241,.2,.2, 1,.677,.485, -4.334,-2.842,.976, unpack(R.l))
+W("S",.317,.2,.2, 1,.68,.485, -4.778,1.426,.976, unpack(R.m))
+W("N",.571,.2,.2, 1,.125,.497, -.587,1.42,.975, unpack(R.j))
+W("N",2.247,.228,.2, 1,1,.46, -3.434,.994,.978, unpack(R.k))
+W("S",.913,.618,.2, 1,1,.485, -1.597,1.179,.991, unpack(R.m))
+W("S",.241,.2,.2, 1,.677,.485, 2.546,-4.078,.976, -.144,.985,-.094,.977,.157,.146)
+W("S",1.286,.251,.2, 1,1,.485, -2.986,1.417,.976, unpack(R.m))
+W("S",.241,.2,.2, 1,.677,.485, -3.442,-1.883,.976, unpack(R.l))
+W("S",.586,.483,.2, 1,1,.485, -2.073,-1.101,.991, .937,.325,.127,.312,-.943,.118)
+W("N",3.69,.285,.2, 1,1,.46, -3.934,.834,.978, unpack(R.k))
+W("N",.2,.2,.2, .926,.086,.497, -1.537,1.189,.975, .781,-.602,.169,-.604,-.796,-.04)
+W("N",.275,.2,.2, 1,.138,.497, -1.419,-1.061,.975, unpack(R.n))
+W("N",.253,.2,.2, 1,.154,.497, -1.395,-1.091,.991, unpack(R.n))
+W("N",.237,.2,.2, 1,.387,.703, -4.984,-4.658,.975, unpack(R.o))
+W("N",1.252,.2,.2, 1,.238,.703, -7.415,1.113,.975, .984,.099,.151,.087,-.993,.085)
+W("N",.689,.2,.2, 1,.146,.703, -4.123,.369,.975, .983,.1,.151,.088,-.993,.085)
+W("S",.342,.2,.2, 1,.957,.687, 5.589,-5.997,.976, -.808,.564,-.17,.567,.823,.032)
+W("S",1.82,.355,.2, 1,1,.687, -5.893,.902,.976, unpack(R.p))
+W("N",3.179,.322,.2, 1,1,.652, -6.391,.122,.978, unpack(R.q))
+W("N",4.938,.403,.2, 1,1,.652, -7.24,-.105,.978, unpack(R.q))
+W("S",.449,.2,.2, 1,.962,.687, -8.43,.915,.976, unpack(R.p))
+W("N",.262,.2,.2, 1,.121,.703, -3.764,.469,.975, .976,.164,.145,.151,-.984,.095)
+W("S",.829,.684,.2, 1,1,.687, -2.993,-3.721,.976, .418,.908,.002,.894,-.412,.173)
+W("S",.342,.2,.2, 1,.957,.687, -5.097,-4.652,.976, unpack(R.r))
+W("N",4.614,.403,.2, 1,1,.652, -7.052,-.137,.978, unpack(R.q))
+W("N",.389,.2,.2, 1,.196,.703, -1.292,-3.369,.975, unpack(R.s))
+W("N",.358,.2,.2, 1,.218,.703, -1.38,-3.624,.975, unpack(R.s))
+W("S",1.293,.874,.2, 1,1,.687, -4.162,.638,.976, unpack(R.p))
+W("S",.342,.2,.2, 1,.957,.687, -6.36,-6.009,.976, unpack(R.r))
+W("N",1.861,.2,.2, 1,.177,.703, -2.248,1.543,.975, unpack(R.t))
+W("S",1.688,.818,.2, 1,1,.687, -2.392,1.803,.976, unpack(R.t))
+W("N",.592,.2,.2, 1,.125,.603, -2.401,1.077,.975, .916,-.361,.173,-.368,-.93,.007)
+W("N",.204,.2,.2, 1,.332,.603, -4.167,-2.635,.975, unpack(R.u))
+W("N",1.075,.2,.2, 1,.205,.603, -5.226,1.714,.975, .916,-.362,.173,-.368,-.93,.007)
+W("N",.211,.2,.2, 1,.084,.603, -4.101,-2.551,.975, unpack(R.u))
+W("S",.739,.702,.2, 1,1,.589, -1.078,1.869,.976, unpack(R.v))
+W("N",3.96,.346,.2, 1,1,.559, -5.006,.764,.978, unpack(R.w))
+W("S",.293,.2,.2, 1,.822,.589, -5.306,-3.797,.976, unpack(R.x))
+W("S",.385,.2,.2, 1,.826,.589, -6.095,1.542,.976, unpack(R.y))
+W("N",.693,.2,.2, 1,.152,.603, -1.052,1.646,.975, unpack(R.v))
+W("N",2.729,.276,.2, 1,1,.559, -4.439,.986,.978, unpack(R.w))
+W("S",1.109,.75,.2, 1,1,.589, -2.433,1.305,.976, unpack(R.y))
+W("S",.293,.2,.2, 1,.822,.589, 3.437,-4.995,.976, -.463,.876,-.137,.872,.478,.106)
+W("S",1.562,.305,.2, 1,1,.589, -3.918,1.531,.976, unpack(R.y))
+W("S",.293,.2,.2, 1,.822,.589, -4.222,-2.633,.976, unpack(R.x))
+W("S",.711,.587,.2, 1,1,.589, -2.655,-1.829,.976, .778,.623,.081,.608,-.779,.153)
+W("N",4.328,.346,.2, 1,1,.559, -5.213,.791,.978, unpack(R.w))
+W("N",.225,.2,.2, 1,.104,.603, -2.145,1.235,.975, .938,-.3,.172,-.308,-.951,.019)
+W("N",.334,.2,.2, 1,.168,.603, -1.601,-1.616,.975, unpack(R.z))
+W("N",.308,.2,.2, 1,.187,.603, -1.677,-1.834,.975, unpack(R.z))
+W("S",.337,.2,.2, 1,.762,.589, -2.197,-7.076,.976, .45,.893,.008,.879,-.444,.173)
+W("S",.484,.333,.251, 0,0,0, 1.377,.884,.967, -.639,-.768,-.048,-.753,.637,-.167)
+W("S",.341,.333,.251, 0,0,0, -.354,-3.787,.967, -.489,.861,-.14,.858,.504,.102)
+W("S",2.084,.333,.251, 0,0,0, 2.76,-1.039,.967, -.93,-.346,-.125,-.332,.935,-.12)
+W("S",.649,.236,.251, 0,0,0, 1.219,-.041,.967, -.973,-.179,-.144,-.166,.981,-.097)
+W("S",.472,.235,.251, 0,0,0, .278,-.853,.967, -.63,.761,-.156,.76,.645,.076)
+W("N",.246,.2,.2, 1,.097,.703, -4.907,-4.561,.975, unpack(R.o))
+W("S",.882,.514,.251, 0,0,0, -2.709,-2.143,.967, .343,.939,-.012,.926,-.336,.173)
+W("S",1.468,.952,.251, 0,0,0, -2.55,.098,.967, unpack(R.aa))
+W("S",.838,.333,.251, 0,0,0, -.234,1.929,.967, .753,-.637,.167,-.639,-.768,-.048)
+W("S",.623,.333,.251, 0,0,0, .876,1.679,.967, -.006,-.998,.07,-.987,-.006,-.158)
+W("S",4.531,.24,.2, 1,.677,.485, 3.558,-1.374,.976, -.767,.62,-.168,.622,.782,.044)
+W("S",.393,.333,.251, 0,0,0, -1.709,.725,.967, unpack(R.aa))
+W("G",.314,1.268,1.294, 1,1,1, -.972,-.939,.994, -.158,.07,.985,.006,.998,-.07,-.987,-.006,-.158)
+W("S",7.262,.255,.2, 1,1,.807, -7.318,.65,.976, unpack(R.f))
+W("S",6.942,.4,.2, 1,.957,.687, 6.195,-1.057,.976, -.984,-.097,-.151,-.085,.993,-.085)
+W("S",.482,.2,.2, 1,.887,.687, -1.0,-9.616,.976, -.084,.993,-.084,.984,.096,.151)
+W("S",5.653,.4,.2, 1,.822,.589, 4.497,-1.64,.976, -.915,.364,-.173,.37,.929,-.007)
+
+-- tattoo on the right arm (simplified)
+local tatInv = {}
+local function T(kind, sx, sy, sz, mx, my, mz, x, y, z, a, b, c, d, e, f, g, h, i)
+	local idx = #tatInv + 1
+	tatInv[idx] = CFrame.new(x, y, z, a, b, c, d, e, f, g, h, i):Inverse()
+	addPart("t" .. idx, { size = V(sx, sy, sz), color = tattooColor, mat = Neon, rig = true,
+		mesh = { type = (kind == "c") and Enum.MeshType.Cylinder or Enum.MeshType.Brick, scale = V(mx, my, mz) } })
+end
+T("n",.062,.062,.062, .644,.221,.329, -.345,.369,.262, .0006,-.994,-.11,-1,-.0006,.0002,-.0003,.11,-.994)
+T("n",.064,.062,.062, 1,.106,.221, -.258,-.167,-.368, 0,-1,-.008,0,.008,-1,1,0,0)
+T("n",.069,.062,.062, 1,.221,.214, .235,.368,.179, 0,-.31,-.951,-1,0,0,0,.951,-.31)
+T("n",.064,.062,.062, 1,.106,.221, -.165,-.181,-.368, 0,.334,.942,0,-.942,.334,1,0,0)
+T("c",.062,.062,.062, .882,.604,.58, .348,.398,-.139, -1,0,-.0007,0,-1,0,-.0007,0,1)
+T("n",.062,.062,.062, .611,.23,.221, -.219,-.249,-.368, 0,.596,.803,0,-.803,.596,1,0,0)
+T("n",.075,.062,.062, 1,.18,.221, -.17,-.175,.369, .0006,.402,-.915,.0003,-.915,-.402,-1,0,-.0007)
+T("n",.062,.062,.062, .644,.221,.329, .26,.368,.213, 0,-.443,-.896,-1,0,0,0,.896,-.443)
+
+-- effect pools (reused, so effects never need new parts)
+local free = { sph = {}, wav = {}, blk = {} }
+for i = 1, 36 do
+	addPart("sph" .. i, { size = V(1, 1, 1), color = BLACK, mat = Neon, trans = 1,
+		mesh = { type = Enum.MeshType.Sphere, scale = V(1, 1, 1) } })
+	free.sph[#free.sph + 1] = "sph" .. i
+end
+for i = 1, 14 do
+	addPart("wav" .. i, { size = V(1, 1, 1), color = BLACK, mat = Neon, trans = 1,
+		mesh = { type = Enum.MeshType.FileMesh, id = "rbxassetid://20329976", tex = "", scale = V(1, 1, 1) } })
+	free.wav[#free.wav + 1] = "wav" .. i
+end
+for i = 1, 40 do
+	addPart("blk" .. i, { size = V(1, 1, 1), color = BLACK, mat = Neon, trans = 1 })
+	free.blk[#free.blk + 1] = "blk" .. i
+end
+
+---------------------------------------------------------------- Build (parallel create, batched properties)
+local P = {}
+local usePhysics = USE_PHYSICS
+
+local function build(names)
+	local pend = #names
+	for _, n in ipairs(names) do
+		task.spawn(function()
+			local d = defs[n]
+			local p = api("CreatePart", "Normal", root.CFrame, workspace)
+			if p then P[n] = p end
+			pend -= 1
+		end)
+	end
+	while pend > 0 do task.wait() end
+	local rs, col, mat, cc, anch, mk, mp = {}, {}, {}, {}, {}, {}, {}
+	for _, n in ipairs(names) do
+		local p, d = P[n], defs[n]
+		if p then
+			rs[#rs + 1] = { Part = p, CFrame = root.CFrame, Size = d.size }
+			col[#col + 1] = { Part = p, Color = d.color, UnanchorAfter = false }
+			mat[#mat + 1] = { Part = p, Material = d.mat, Transparency = d.trans or 0 }
+			cc[#cc + 1] = { Part = p, CanCollide = false }
+			if d.mesh then
+				mk[#mk + 1] = { Part = p }
+				mp[#mp + 1] = { Part = p, MeshType = d.mesh.type, MeshId = d.mesh.id,
+					TextureId = d.mesh.tex, Scale = d.mesh.scale }
+			end
+			-- Anchor every created part, including pooled visual effects.
+			anch[#anch + 1] = { Part = p, Anchored = true }
+		end
+	end
+	par(
+		function() api("SyncResize", rs) end,
+		function() api("SyncColor", col) end,
+		function() api("SyncMaterial", mat) end,
+		function() api("SyncCollision", cc) end,
+		function() if #anch > 0 then api("SyncAnchor", anch) end end,
+		function() if #mk > 0 then api("CreateMeshes", mk) api("SyncMesh", mp) end end
+	)
+end
+
+build(order)
+
+-- hide the real character through F3X
+do
+	local list = {}
+	for _, v in ipairs(char:GetDescendants()) do
+		if v:IsA("BasePart") and v ~= root then
+			table.insert(list, { Part = v, Transparency = 1 })
+		end
+	end
+	api("SyncMaterial", list)
+end
+
+pcall(function()
+	api("CreateDecorations", { { Part = P.head, DecorationType = "Decal" } })
+	api("SyncDecorate", { { Part = P.head, DecorationType = "Decal",
+		Texture = "rbxassetid://176777497", Face = Enum.NormalId.Front, Transparency = 0 } })
+end)
+
+---------------------------------------------------------------- State and poses
+local alive = true
+local Attack = false
+local dash = false
+local sine = 0
+local override = nil
+local origWS, origJP = hum.WalkSpeed, hum.JumpPower
+hum.WalkSpeed = WALK_SPEED
+hum.JumpPower = 0
+local rtt = .1
+local target = {}
+
+local function Pz(t, h, ra, la, rl, ll, wing, a)
+	return { t = t, h = h, ra = ra, la = la, rl = rl, ll = ll, wing = wing or 0, a = a or .1 }
+end
+
+local pose = { t = C(0, 1.373, 0), h = C(0, 1.572, -.165), ra = C(.923, 1.15, -.617), la = C(-1.596, .176, .059),
+	rl = C(.5, -1.384, -.476), ll = C(-.5, -1.974, -.384), wing = 0 }
+
+local function idle()
+	return {
+		t = C(0,1.373,0, 1,0,0,0,.985,.174,0,-.174,.985) * C(0, .2 * cos(sine / 30), 0),
+		h = C(0,1.572,-.165, 1,0,0,0,.996,.087,0,-.087,.996) * Ang(math.rad(math.random(-20, 20)), 0, math.rad(math.random(-20, 20))),
+		ra = C(.923,1.15,-.617, .835,.53,-.148,.24,-.594,-.768,-.495,.606,-.623) * Ang(0, 0, math.rad(math.random(-20, 20))),
+		la = C(-1.596,.176,.059, 0,.174,.985,.087,.981,-.173,-.996,.086,-.015),
+		rl = C(.5,-1.384,-.476, 1,0,0,0,.996,-.087,0,.087,.996) * C(0, .1 * cos(sine / 30), 0),
+		ll = C(-.5,-1.974,-.384, 1,0,0,0,.996,-.087,0,.087,.996),
+		wing = -15 * cos(sine / 30), a = .05,
+	}
+end
+
+local function walk()
+	return {
+		t = C(0,1.493,-.361, 1,0,0,0,.643,.766,0,-.766,.643) * C(0, 0, .2 * cos(sine / 20)),
+		h = C(0,1.565,-.033, 1,0,0,0,.94,-.342,0,.342,.94),
+		ra = C(.811,1.342,-.672, .796,.488,-.358,.315,-.839,-.445,-.518,.241,-.821),
+		la = C(-1.635,-.068,.269, -.087,.15,.985,-.415,.893,-.173,-.906,-.424,-.015),
+		rl = C(.5,-1.493,-.532, 1,0,0,0,.996,.087,0,-.087,.996),
+		ll = C(-.5,-2.119,.211, 1,0,0,0,.866,.5,0,-.5,.866),
+		wing = -20 + 20 * cos(sine / 20), a = .05,
+	}
+end
+
+local POSE_JUMP = Pz(C(0,.023,.021, 1,0,0,0,.966,.259,0,-.259,.966), C(.017,1.546,-.004, .999,.007,-.042,-.011,.996,-.087,.041,.087,.995),
+	C(1.541,.254,-.522, .89,-.153,-.43,-.328,.44,-.836,.317,.885,.342), C(-1.557,.112,.343, .986,.113,.122,-.159,.862,.482,-.051,-.495,.868),
+	C(.567,-1.597,-.482, .999,-.039,-.01,.04,.944,.328,-.003,-.328,.945), C(-.433,-1.96,.005, 1,0,0,0,.966,.259,0,-.259,.966), -10, .1)
+local POSE_FALL = Pz(C(0,.023,.021, 1,0,0,0,.985,.174,0,-.174,.985), C(.015,1.552,-.092, .999,.018,-.039,-.007,.966,.259,.042,-.258,.965),
+	C(1.44,.051,-.418, .89,-.076,-.45,-.299,.647,-.701,.344,.758,.553), C(-1.557,.142,.332, .986,.113,.122,-.162,.815,.556,-.037,-.568,.822),
+	C(.573,-1.806,-.374, .999,-.037,.014,.039,.981,-.188,-.007,.188,.982), C(-.433,-1.952,.176, 1,0,0,0,.985,.174,0,-.174,.985), -10, .05)
+local POSE_WIND = Pz(C(0,1.258,.075, 1,0,0,0,1,0,0,0,1), C(0,1.572,-.165, 1,0,0,0,.996,.087,0,-.087,.996),
+	C(.77,1.159,-.773, .67,.728,-.148,.386,-.512,-.768,-.635,.457,-.623), C(-1.292,1.919,-.098, -.226,-.171,.959,.126,-.981,-.145,.966,.088,.243),
+	C(.5,-1.384,-.476, 1,0,0,0,.996,-.087,0,.087,.996), C(-.5,-1.974,-.384, 1,0,0,0,.996,-.087,0,.087,.996))
+local POSE_SLAM = Pz(C(-.168,1.258,-.158, .5,.296,-.814,0,.94,.342,.866,-.171,.47), C(0,1.629,-.065, 1,0,0,0,.985,.174,0,-.174,.985),
+	C(.612,1.295,-.631, .67,.728,-.148,.58,-.637,-.508,-.464,.254,-.848), C(-1.948,.622,-.544, .054,.676,.735,.99,-.131,.047,.128,.725,-.676),
+	C(.5,-1.137,-.921, .985,0,-.174,-.073,.906,-.416,.157,.423,.893), C(-.637,-1.712,-1.035, .996,.087,0,-.087,.992,-.087,-.008,.087,.996))
+local POSE_ARM = Pz(C(0,1.508,-.049, 1,0,0,0,.966,.259,0,-.259,.966), C(0,1.572,-.165, 1,0,0,0,.996,-.087,0,.087,.996),
+	POSE_WIND.ra, C(-1.15,.771,-1.345, .151,-.24,.959,.989,.04,-.145,-.004,.97,.243), POSE_WIND.rl, POSE_WIND.ll)
+local POSE_CHARGE = Pz(C(0,-.077,-.054, 1,0,0,0,.94,.342,0,-.342,.94), C(0,1.641,-.194, 1,0,0,0,.94,.342,0,-.342,.94),
+	C(1.629,-.002,-.257, -.004,-.085,-.996,-.682,.729,-.059,.731,.68,-.061), C(-1.64,-.025,-.475, .013,.142,.99,.647,.754,-.117,-.763,.642,-.082),
+	C(.5,-1.493,-.532, 1,0,0,0,.996,.087,0,-.087,.996), C(-.5,-2.119,.211, 1,0,0,0,.866,.5,0,-.5,.866), 30, .03)
+local POSE_RISE = Pz(C(0,1.633,-.236, 1,0,0,0,.766,.643,0,-.643,.766), C(0,1.416,.037, 1,0,0,0,.985,-.174,0,.174,.985),
+	C(1.611,-.04,.06, .098,-.249,-.964,.144,.962,-.234,.985,-.116,.131), C(-1.636,-.068,.269, -.087,.15,.985,-.415,.893,-.173,-.906,-.424,-.015),
+	C(.5,-1.493,-.532, 1,0,0,0,.996,.087,0,-.087,.996), C(-.5,-2.119,.211, 1,0,0,0,.866,.5,0,-.5,.866), -50)
+local POSE_DIVE = Pz(C(0,1.442,.183, 1,0,0,0,.906,-.423,0,.423,.906), C(0,1.632,-.348, 1,0,0,0,.866,.5,0,-.5,.866),
+	C(1.986,.464,-.267, .084,-.98,.181,.975,.043,-.217,.205,.195,.959), C(-1.955,.565,-.316, .007,.989,-.149,-.995,-.008,-.098,-.098,.149,.984),
+	C(.5,-1.409,-.485, 1,0,0,0,.996,.087,0,-.087,.996), C(-.5,-2.027,-.437, 1,0,0,0,1,0,0,0,1), -50)
+local POSE_IMPACT = Pz(C(0,-1.053,-.054, 1,0,0,0,.643,.766,0,-.766,.643), C(0,1.593,-.176, 1,0,0,0,.966,.259,0,-.259,.966),
+	C(1.505,-.005,-1.109, .997,-.019,.081,.078,.535,-.841,-.027,.845,.535), C(-1.814,.249,-.337, .013,.472,.881,.941,.291,-.17,-.337,.832,-.441),
+	C(.5,-1.602,-.464, 1,0,0,0,.766,.643,0,-.643,.766), C(-.5,-.554,-.856, 1,0,0,0,.643,-.766,0,.766,.643), -50)
+local POSE_DET = Pz(C(0,1.422,-.049, 1,0,0,0,.966,.259,0,-.259,.966), C(0,1.572,-.165, 1,0,0,0,.906,.423,0,-.423,.906),
+	C(1.073,.537,-.868, .406,.905,.124,.328,-.018,-.945,-.853,.424,-.304), C(-1.159,.618,-.714, .344,-.921,-.183,-.243,.101,-.965,.907,.376,-.189),
+	C(.5,-1.384,-.476, 1,0,0,0,.985,.174,0,-.174,.985), C(-.5,-1.66,-.682, 1,0,0,0,.985,-.174,0,.174,.985))
+
+local function wobble(p, a)
+	return { t = p.t * Ang(0, .2 * cos(sine / 30), 0), h = p.h, ra = p.ra, la = p.la, rl = p.rl, ll = p.ll,
+		wing = -15 * cos(sine / 30), a = a or .1 }
+end
+
+local function grounded(dist)
+	return workspace:Raycast(root.Position, V(0, -(dist or 4), 0), rayParams) ~= nil
+end
+
+local state = "idle"
+local function autoPose()
+	local vel = root.AssemblyLinearVelocity
+	local speed = V(vel.X, 0, vel.Z).Magnitude
+	local g = grounded(4)
+	if vel.Y > 1 and not g then state = "jump"
+	elseif vel.Y < -1 and not g then state = "fall"
+	elseif speed < 1 and g then state = "idle"
+	elseif speed > 2 and g then state = "walk" end
+	if state == "jump" then return POSE_JUMP
+	elseif state == "fall" then return POSE_FALL
+	elseif state == "walk" then return walk() end
+	return idle()
+end
+
+local function wf(frames) task.wait(frames / 45) end
+
+---------------------------------------------------------------- Rig drive (client every frame, fallback = SyncMove workers)
+local wingNames, tatNames = {}, {}
+for i = 1, #wingInv do wingNames[i] = "w" .. i end
+for i = 1, #tatInv do tatNames[i] = "t" .. i end
+local WING_OFF = C(.0814, -.0268, -.041)
+local TAT_OFF = C(.128, .406, -.0114)
+
+local function compute()
+	-- Predict a short distance ahead using horizontal velocity. Clamp the lead so
+	-- sudden dashes/jumps do not fling the visual rig far away from the player.
+	local velocity = root.AssemblyLinearVelocity
+	local lead = math.clamp(PREDICTION_TIME, 0, 0.2)
+	local predictedOffset = velocity * lead
+	local horizontal = V(velocity.X, 0, velocity.Z)
+	if horizontal.Magnitude > 0 then
+		local horizontalDistance = math.min(horizontal.Magnitude * lead, MAX_PREDICTION_DISTANCE)
+		local horizontalLead = horizontal.Unit * horizontalDistance
+		predictedOffset = V(
+			horizontalLead.X,
+			math.clamp(predictedOffset.Y, -2, 2),
+			horizontalLead.Z
+		)
+	end
+
+	local rootCF = root.CFrame + predictedOffset
+	local torso = rootCF * pose.t
+	local head = torso * pose.h
+	target.torso = torso
+	target.head = head
+	target.halfhed = head * C(0, .185, 0) * A(0, 180, 0)
+	target.larm = torso * pose.la
+	target.rarm = torso * pose.ra
+	target.lleg = torso * pose.ll
+	target.rleg = torso * pose.rl
+	local wingCF = torso * WING_OFF * A(0, 0, pose.wing) * WING_OFF
+	for i = 1, #wingInv do target[wingNames[i]] = wingCF * wingInv[i] end
+	local tb = target.rarm * TAT_OFF
+	for i = 1, #tatInv do target[tatNames[i]] = tb * tatInv[i] end
+end
+
+local function differs(a, b)
+	return not a
+		or (a.Position - b.Position).Magnitude > .015
+		or (a.LookVector - b.LookVector).Magnitude > .002
+		or (a.UpVector - b.UpVector).Magnitude > .002
+end
+
+-- Each worker owns distinct batches. Failed SyncMove calls do not update the
+-- last-sent cache, so those parts are retried on the next pass.
+local function startWorkers()
+	local batches = {}
+	for s = 1, #rigNames, SYNC_BATCH_SIZE do
+		local names = {}
+		for i = s, math.min(s + SYNC_BATCH_SIZE - 1, #rigNames) do
+			names[#names + 1] = rigNames[i]
+		end
+		batches[#batches + 1] = { names = names, last = {} }
+	end
+
+	for workerId = 1, math.min(WORKERS, math.max(#batches, 1)) do
+		task.spawn(function()
+			task.wait((workerId - 1) * 0.025)
+			while alive do
+				local list = {}
+				local pendingNames = {}
+				for batchIndex = workerId, #batches, WORKERS do
+					local batch = batches[batchIndex]
+					for _, n in ipairs(batch.names) do
+						local cf, p = target[n], P[n]
+						if cf and p and p.Parent and differs(batch.last[n], cf) then
+							list[#list + 1] = { Part = p, CFrame = cf }
+							pendingNames[#pendingNames + 1] = { batch = batch, name = n, cf = cf }
+						end
+					end
+				end
+
+				if #list > 0 then
+					local t0 = os.clock()
+					local ok = pcall(api, "SyncMove", list)
+					if ok then
+						rtt = rtt * 0.85 + (os.clock() - t0) * 0.15
+						for _, item in ipairs(pendingNames) do
+							item.batch.last[item.name] = item.cf
+						end
+					end
+				end
+				task.wait(SYNC_INTERVAL)
+			end
+		end)
+	end
+end
+
+-- Anchoring is applied during build; no local CFrame writes or physics fallback.
+if not usePhysics then startWorkers() end
+
+local conn = RunService.RenderStepped:Connect(function(dt)
+	if not alive then return end
+	sine += 45 * dt
+	local p = override
+	if type(p) == "function" then p = p() end
+	p = p or autoPose()
+	local k = 1 - (1 - (p.a or .1)) ^ (dt * 45)
+	pose.t = pose.t:Lerp(p.t, k)
+	pose.h = pose.h:Lerp(p.h, k)
+	pose.ra = pose.ra:Lerp(p.ra, k)
+	pose.la = pose.la:Lerp(p.la, k)
+	pose.rl = pose.rl:Lerp(p.rl, k)
+	pose.ll = pose.ll:Lerp(p.ll, k)
+	local kw = 1 - (1 - .1) ^ (dt * 45)
+	pose.wing = pose.wing + ((p.wing or 0) - pose.wing) * kw
+	compute()
+end)
+
+-- Kept as a connection for cleanup compatibility; anchored parts are moved only
+-- through the F3X SyncMove endpoint, not by local physics/CFrame updates.
+local steppedConn = RunService.Stepped:Connect(function()
+	if not alive then return end
+end)
+
+local heartConn = RunService.Heartbeat:Connect(function()
+	if not alive then return end
+	if dash then
+		local look = root.CFrame.LookVector
+		local v = root.AssemblyLinearVelocity
+		root.AssemblyLinearVelocity = V(look.X * 100, v.Y, look.Z * 100)
+	end
+end)
+
+---------------------------------------------------------------- Effects manager (pooled, one batch per tick)
+local active, inflight = {}, 0
+local function cv(v) return V(math.max(v.X, .05), math.max(v.Y, .05), math.max(v.Z, .05)) end
+
+local function fx(kind, cf, s0, g, life, color, o)
+	local name = table.remove(free[kind])
+	if not name then return end
+	o = o or {}
+	active[#active + 1] = { n = name, k = kind, cf = cf, s0 = s0, g = g or V0, life = life, c = color or BLACK,
+		t0 = o.t0 or 0, tend = o.tend or 1, vel = o.vel, acc = o.acc, ms0 = o.ms0 or V(1, 1, 1), mg = o.mg or V0,
+		born = os.clock(), fresh = true }
+end
+
+local function send(act, list)
+	if #list == 0 then return end
+	inflight += 1
+	task.spawn(function() pcall(api, act, list) inflight -= 1 end)
+end
+
+task.spawn(function()
+	while alive do
+		task.wait(.05)
+		if inflight < 4 then
+			local now = os.clock()
+			local rs, ms, mt, cl, mv = {}, {}, {}, {}, {}
+			for i = #active, 1, -1 do
+				local a = active[i]
+				local p = P[a.n]
+				local t = now - a.born
+				if p and p.Parent then
+					if t >= a.life then
+						mt[#mt + 1] = { Part = p, Transparency = 1 }
+						table.insert(free[a.k], a.n)
+						table.remove(active, i)
+					else
+						local pos = a.cf.Position + (a.vel and a.vel * t or V0) + (a.acc and a.acc * (.5 * t * t) or V0)
+						local cf = CFrame.new(pos) * (a.cf - a.cf.Position)
+						if a.k == "wav" then
+							ms[#ms + 1] = { Part = p, Scale = cv(a.ms0 + a.mg * t) }
+							if a.fresh or a.vel then mv[#mv + 1] = { Part = p, CFrame = cf } end
+						else
+							rs[#rs + 1] = { Part = p, CFrame = cf, Size = cv(a.s0 + a.g * t) }
+						end
+						mt[#mt + 1] = { Part = p, Transparency = math.clamp(a.t0 + (a.tend - a.t0) * (t / a.life), 0, 1) }
+						if a.fresh then
+							cl[#cl + 1] = { Part = p, Color = a.c, UnanchorAfter = false }
+							a.fresh = false
+						end
+					end
+				else
+					table.insert(free[a.k], a.n)
+					table.remove(active, i)
+				end
+			end
+			send("SyncResize", rs)
+			send("SyncMove", mv)
+			send("SyncMesh", ms)
+			send("SyncMaterial", mt)
+			send("SyncColor", cl)
+		end
+	end
+end)
+
+local function boom(pos, radius, life, color)
+	fx("sph", CFrame.new(pos), V(1, 1, 1), V(radius, radius * 2, radius) / life, life, color or BLACK)
+	fx("sph", CFrame.new(pos), V(1, 1, 1), V(radius, radius * 2, radius) * .7 / life, life, GREY)
+	fx("wav", CFrame.new(pos), V(1, 1, 1), V0, life, BLACK, { ms0 = V(4, .001, 4), mg = V(radius * 1.2, .01, radius * 1.2) / life })
+	fx("wav", CFrame.new(pos), V(1, 1, 1), V0, life, GREY, { ms0 = V(4, .001, 4), mg = V(radius, .01, radius) / life })
+end
+
+local function debris(pos, n, speed)
+	for _ = 1, n do
+		local s = math.random(10, 25) / 10
+		fx("blk", CFrame.new(pos + V(math.random(-4, 4), 2, math.random(-4, 4))), V(s, s, s), V0, 1.4, BLACK,
+			{ vel = V(math.random(-speed, speed), math.random(speed, speed * 2), math.random(-speed, speed)), acc = V(0, -120, 0), t0 = .2 })
+	end
+end
+
+local function trace()
+	for _, n in ipairs({ "torso", "head", "larm", "rarm", "lleg", "rleg" }) do
+		if target[n] then fx("blk", target[n], defs[n].size, V0, .5, BLACK, { t0 = .3 }) end
+	end
+end
+
+-- ambient: dark columns rising around you, trace while walking
+task.spawn(function()
+	local tr = 0
+	while alive do
+		task.wait(.2)
+		local pos = root.Position + V(math.random(-10, 10), -3, math.random(-10, 10))
+		fx("sph", CFrame.new(pos), V(.02, .6, .02), V(.9, 27, .9), 1.1, BLACK)
+		tr += 1
+		if state == "walk" and tr % 1 == 0 then trace() end
+	end
+end)
+
+-- local theme sounds (only you hear these)
+for _, s in ipairs({ { "1810750535", 3 }, { "826174965", 1 } }) do
+	local snd = Instance.new("Sound")
+	snd.SoundId = "rbxassetid://" .. s[1]
+	snd.Volume = s[2]
+	snd.Looped = true
+	snd.Name = "CaducusTheme"
+	snd.Parent = root
+	snd:Play()
+end
+
+---------------------------------------------------------------- Moves (visual only)
+local function begin(lockMove)
+	if Attack then return false end
+	Attack = true
+	if lockMove then hum.WalkSpeed = 0 end
+	return true
+end
+local function finish()
+	override = nil
+	Attack = false
+	hum.WalkSpeed = WALK_SPEED
+end
+
+-- Click: Wretched Row
+local function punch()
+	if not begin(false) then return end
+	override = function() return wobble(POSE_WIND, .1) end
+	local last = 0
+	local t0 = os.clock()
+	while os.clock() - t0 < 50 / 45 do
+		if os.clock() - last > .1 and target.larm then
+			last = os.clock()
+			fx("sph", target.larm * C(0, -1, 0), V(.2, .2, .2), V(9, 9, 9), .28, BLACK)
+		end
+		RunService.Heartbeat:Wait()
+	end
+	override = function() return wobble(POSE_SLAM, .1) end
+	local look = root.CFrame.LookVector
+	local start = root.Position
+	for k = 1, 22 do
+		local pos = groundAt(start + look * (k * 5 + 3))
+		fx("sph", CFrame.new(pos), V(.2, .6, .2), V(45, 90, 45), .55, BLACK)
+		task.wait(.05)
+	end
+	task.wait(.1)
+	finish()
+end
+
+-- Z: Spectral Sprint
+local function sprint()
+	if Attack then return end
+	dash = not dash
+end
+
+-- X: Vile Vault
+local function vault()
+	if not begin(true) then return end
+	override = POSE_CHARGE
+	wf(90)
+	fx("wav", CFrame.new(root.Position - V(0, 2, 0)), V(1, 1, 1), V0, .5, GREY, { ms0 = V(3, .001, 3), mg = V(30, .01, 30) / .5 })
+	hum:ChangeState(Enum.HumanoidStateType.Jumping)
+	override = POSE_RISE
+	for i = 1, 30 do
+		root.AssemblyLinearVelocity = V(0, 200, 0)
+		if i % 4 == 0 then trace() end
+		RunService.Heartbeat:Wait()
+	end
+	wf(20)
+	override = POSE_DIVE
+	local t0 = os.clock()
+	local n = 0
+	while not grounded(10) and os.clock() - t0 < 4 do
+		root.AssemblyLinearVelocity = V(0, -200, 0)
+		n += 1
+		if n % 4 == 0 then trace() end
+		RunService.Heartbeat:Wait()
+	end
+	override = POSE_IMPACT
+	local pos = groundAt(root.Position)
+	debris(pos, 14, 60)
+	boom(pos, 45, .6)
+	root.AssemblyLinearVelocity = V0
+	wf(50)
+	finish()
+end
+
+-- C: The Spire
+local function spire()
+	if not begin(false) then return end
+	override = function() return wobble(POSE_WIND, .2) end
+	wf(10)
+	override = function() return wobble(POSE_SLAM, .1) end
+	local pos = aim()
+	fx("wav", CFrame.new(pos + V(0, .3, 0)), V(1, 1, 1), V0, 1.2, BLACK, { ms0 = V(2, .01, 2), mg = V(60, .01, 60) })
+	fx("wav", CFrame.new(pos + V(0, .4, 0)), V(1, 1, 1), V0, 1.2, GREY, { ms0 = V(1, .01, 1), mg = V(45, .01, 45) })
+	wf(55)
+	boom(pos, 110, 1.4)
+	debris(pos, 16, 70)
+	wf(30)
+	finish()
+end
+
+-- V: Blot Out The Sun
+local function meteor(center)
+	local start = center + V(math.random(-50, 50), 300, math.random(-50, 50))
+	local gy = groundAt(V(start.X, center.Y, start.Z)).Y
+	local speed = 150
+	local life = math.max((start.Y - gy) / speed, .3)
+	fx("sph", CFrame.new(start), V(10, 10, 10), V0, life, BLACK, { vel = V(0, -speed, 0), t0 = 0, tend = 0 })
+	task.delay(life, function()
+		if not alive then return end
+		local pos = V(start.X, gy, start.Z)
+		boom(pos, 30, .6)
+		for _ = 1, 5 do
+			fx("blk", CFrame.new(pos + V(0, 2, 0)), V(1.2, 1.2, 1.2), V0, 1.2, BLACK,
+				{ vel = V(math.random(-60, 60), math.random(60, 110), math.random(-60, 60)), acc = V(0, -120, 0), t0 = .1 })
+		end
+	end)
+end
+
+local function sun()
+	if not begin(false) then return end
+	override = function() return wobble(POSE_WIND, .2) end
+	wf(10)
+	local center = aim()
+	override = POSE_ARM
+	wf(20)
+	Attack = false
+	for _ = 1, 20 do
+		if not alive then break end
+		meteor(center)
+		task.wait(.5)
+	end
+	finish()
+end
+
+-- B: Then Make a New One
+local function laser()
+	if not begin(true) then return end
+	override = function() return wobble(POSE_WIND, .1) end
+	wf(80)
+	local src = root.Position + V(0, 80, 0)
+	local stopT = os.clock() + 6
+	while os.clock() < stopT and alive do
+		local tgt = aim()
+		local d = tgt - src
+		local len = math.max(d.Magnitude, 1)
+		fx("blk", CFrame.new(src + d / 2, tgt), V(5, 5, len), V(14, 14, 0), .3, BLACK, { t0 = .1 })
+		fx("sph", CFrame.new(src), V(2, 2, 2), V(12, 12, 12), .3, BLACK)
+		fx("sph", CFrame.new(tgt), V(2, 4, 2), V(40, 80, 40), .35, BLACK)
+		task.wait(.1)
+	end
+	finish()
+end
+
+-- M: The Cataclyst (visual only, your fake body breaks apart and rebuilds)
+local function cataclyst()
+	if not begin(true) then return end
+	override = POSE_DET
+	local t0 = os.clock()
+	while os.clock() - t0 < 4 do
+		if target.rarm then fx("sph", target.rarm * C(.2, -1.1, 0), V(.22, .22, .22), V(10, 10, 10), .28, BLACK) end
+		task.wait(.15)
+	end
+	for _, R in ipairs({ 40, 100, 180 }) do
+		fx("sph", CFrame.new(target.rarm.Position), V(2, 2, 2), V(R, R, R) / 1.2, 1.2, BLACK)
+		task.wait(1.2)
+	end
+	local hideList, showList = {}, {}
+	for _, n in ipairs(rigNames) do
+		local p = P[n]
+		if p then
+			hideList[#hideList + 1] = { Part = p, Transparency = 1 }
+			showList[#showList + 1] = { Part = p, Transparency = defs[n].trans or 0 }
+		end
+	end
+	api("SyncMaterial", hideList)
+	for _, n in ipairs({ "torso", "head", "larm", "rarm", "lleg", "rleg" }) do
+		local s = defs[n].size
+		fx("blk", target[n], s, V0, 3, BLACK, { vel = V(math.random(-30, 30), math.random(-5, 25), math.random(-30, 30)),
+			acc = V(0, -4, 0), t0 = 0 })
+	end
+	boom(root.Position, 90, 1.2)
+	task.wait(3)
+	api("SyncMaterial", showList)
+	finish()
+end
+
+---------------------------------------------------------------- Watchdog (instant parallel rebuild of any deleted part)
+local rebuilding = false
+local watchConn = RunService.Heartbeat:Connect(function()
+	if not alive or rebuilding then return end
+	local missing = {}
+	for _, n in ipairs(order) do
+		local p = P[n]
+		if not p or not p.Parent then missing[#missing + 1] = n end
+	end
+	if #missing == 0 then return end
+	rebuilding = true
+	task.spawn(function()
+		build(missing)
+		task.wait(.25)
+		rebuilding = false
+	end)
+end)
+
+---------------------------------------------------------------- Cleanup
+local buttonGui
+local function cleanup()
+	if not alive then return end
+	alive = false
+	conn:Disconnect()
+	steppedConn:Disconnect()
+	heartConn:Disconnect()
+	watchConn:Disconnect()
+	if buttonGui then buttonGui:Destroy() end
+	for _, s in ipairs(root:GetChildren()) do
+		if s.Name == "CaducusTheme" then s:Destroy() end
+	end
+	local list = {}
+	for _, p in pairs(P) do table.insert(list, p) end
+	api("Remove", list)
+	local show = {}
+	for _, v in ipairs(char:GetDescendants()) do
+		if v:IsA("BasePart") and v ~= root then show[#show + 1] = { Part = v, Transparency = 0 } end
+	end
+	pcall(api, "SyncMaterial", show)
+	hum.WalkSpeed = origWS
+	hum.JumpPower = origJP
+end
+
+hum.Died:Connect(function()
+	alive = false
+	conn:Disconnect()
+	steppedConn:Disconnect()
+	heartConn:Disconnect()
+	watchConn:Disconnect()
+	if buttonGui then buttonGui:Destroy() end
+end)
+
+---------------------------------------------------------------- PC input (keyboard + click)
+UIS.InputBegan:Connect(function(input, gpe)
+	if gpe or not alive then return end
+	local k = input.KeyCode
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		task.spawn(punch)
+	elseif k == Enum.KeyCode.Z then task.spawn(sprint)
+	elseif k == Enum.KeyCode.X then task.spawn(vault)
+	elseif k == Enum.KeyCode.C then task.spawn(spire)
+	elseif k == Enum.KeyCode.V then task.spawn(sun)
+	elseif k == Enum.KeyCode.B then task.spawn(laser)
+	elseif k == Enum.KeyCode.M then task.spawn(cataclyst)
+	elseif k == Enum.KeyCode.P then cleanup() end
+end)
+
+---------------------------------------------------------------- Mobile input (on-screen buttons)
+if UIS.TouchEnabled then
+	buttonGui = Instance.new("ScreenGui")
+	buttonGui.Name = "CaducusButtons"
+	buttonGui.ResetOnSpawn = false
+	buttonGui.Parent = player:WaitForChild("PlayerGui")
+
+	local actions = {
+		{ "Hit", punch }, { "Z", sprint }, { "X", vault }, { "C", spire },
+		{ "V", sun }, { "B", laser }, { "M", cataclyst }, { "P", cleanup },
+	}
+	local SIZE, GAP = 58, 8
+	for i, a in ipairs(actions) do
+		local col = (i - 1) % 2
+		local row = math.floor((i - 1) / 2)
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.fromOffset(SIZE, SIZE)
+		b.AnchorPoint = Vector2.new(1, .5)
+		b.Position = UDim2.new(1, -12 - col * (SIZE + GAP), .5, (row - 1.5) * (SIZE + GAP))
+		b.BackgroundColor3 = Color3.new(0, 0, 0)
+		b.BackgroundTransparency = .35
+		b.Text = a[1]
+		b.TextColor3 = Color3.new(1, 1, 1)
+		b.TextScaled = true
+		b.Font = Enum.Font.GothamBold
+		b.Parent = buttonGui
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 12)
+		corner.Parent = b
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.new(1, 1, 1)
+		stroke.Transparency = .5
+		stroke.Thickness = 1.5
+		stroke.Parent = b
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop = UDim.new(0, 12)
+		pad.PaddingBottom = UDim.new(0, 12)
+		pad.Parent = b
+		b.Activated:Connect(function()
+			if alive then task.spawn(a[2]) end
+		end)
+	end
+end
