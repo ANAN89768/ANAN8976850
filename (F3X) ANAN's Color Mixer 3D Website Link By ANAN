@@ -6,9 +6,7 @@
 local CONFIG = {
 	-- Text (each entry is one line)
 	LINES = {
-		"https://",
-		"anan89768.github.io/",
-		"Color-Mixer-3D/",
+		"https://anan89768.github.io/Color-Mixer-3D/",
 	},
 
 	-- Size
@@ -19,7 +17,7 @@ local CONFIG = {
 	PITCH = 14,           -- line spacing in units
 
 	-- Position
-	DIST = 45,            -- distance in front of you (studs)
+	DIST = 40,            -- distance in front of you (studs)
 	HEIGHT = 0,           -- extra lift (0 = bottom just above ground)
 
 	-- Colors
