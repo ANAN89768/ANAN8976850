@@ -1,0 +1,535 @@
+--//  ANAN'S SCORPION V6 — NECK SNAP MECH EDITION
+--// Locks the scorpion to your feet, makes you server-invisible via F3X, and snaps enemy necks by shifting their head 0.1 studs upward via F3X SyncMove!
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local Player = Players.LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local Root = Character:WaitForChild("HumanoidRootPart")
+
+--==================================================
+-- SETTINGS
+--==================================================
+
+local SETTINGS = {
+    BodyColor = Color3.fromRGB(48, 29, 20),
+    ArmorColor = Color3.fromRGB(91, 48, 27),
+    DarkColor = Color3.fromRGB(28, 19, 16),
+    JointColor = Color3.fromRGB(65, 36, 23),
+    ClawColor = Color3.fromRGB(110, 59, 29),
+    EyeColor = Color3.fromRGB(255, 90, 20),
+
+    WalkFrequency = 14,
+    LegStride = 0.65,
+    LegLift = 0.48,
+    
+    KillRadius = 4.5, -- Distance from scorpion head to trigger the neck snap
+}
+
+--==================================================
+-- CLEAN OLD VERSION
+--==================================================
+
+if shared.ANAN_SCORPION_F3X_STOP then
+    pcall(shared.ANAN_SCORPION_F3X_STOP)
+end
+
+--==================================================
+-- F3X SYNC API INTEGRATION
+--==================================================
+
+local endpoint = nil
+local function getEndpoint()
+    if endpoint and endpoint.Parent then return endpoint end
+    endpoint = nil
+    for _, container in ipairs({ Player.Character, Player.Backpack }) do
+        if container then
+            for _, tool in ipairs(container:GetChildren()) do
+                local api = tool:FindFirstChild("SyncAPI")
+                local ep = api and api:FindFirstChild("ServerEndpoint")
+                if ep then
+                    endpoint = ep
+                    return ep
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function sync(action, ...)
+    local ep = getEndpoint()
+    if not ep then return nil end
+    local args = table.pack(...)
+    local ok, result = pcall(function()
+        return ep:InvokeServer(action, table.unpack(args, 1, args.n))
+    end)
+    return ok and result or nil
+end
+
+--==================================================
+-- STATUS GUI
+--==================================================
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "ANAN_Scorpion_F3X_GUI"
+gui.ResetOnSpawn = false
+gui.Parent = Player:WaitForChild("PlayerGui")
+
+local status = Instance.new("TextLabel")
+status.AnchorPoint = Vector2.new(0.5, 0)
+status.Position = UDim2.fromScale(0.5, 0.02)
+status.Size = UDim2.fromOffset(380, 32)
+status.BackgroundTransparency = 0.25
+status.BackgroundColor3 = Color3.fromRGB(25, 15, 10)
+status.Font = Enum.Font.GothamBold
+status.TextSize = 14
+status.TextColor3 = Color3.fromRGB(255, 90, 40)
+status.Text = "Equipping Neck-Snapping Scorpion Mech..."
+status.Parent = gui
+Instance.new("UICorner", status).CornerRadius = UDim.new(0, 8)
+
+--==================================================
+-- TRUE F3X SERVER-SIDE INVISIBILITY
+--==================================================
+
+task.spawn(function()
+    while not getEndpoint() do task.wait(0.5) end
+    Character = Player.Character or Player.CharacterAdded:Wait()
+    
+    local matSync = {}
+    for _, v in ipairs(Character:GetChildren()) do
+        if v:IsA("BasePart") and v.Name ~= "HumanoidRootPart" then
+            table.insert(matSync, { Part = v, Material = v.Material, Transparency = 1 })
+        elseif v:IsA("Accessory") and v:FindFirstChild("Handle") then
+            table.insert(matSync, { Part = v.Handle, Material = v.Handle.Material, Transparency = 1 })
+        end
+    end
+    sync("SyncMaterial", matSync)
+end)
+
+--==================================================
+-- PART REGISTRY & BUILDER
+--==================================================
+
+local Order = {}
+
+local function DefinePart(name, size, color, material)
+    local p = {
+        name = name,
+        kind = "Normal",
+        size = size,
+        color = color,
+        material = material or Enum.Material.SmoothPlastic,
+        cf = CFrame.new(),
+        sentCF = nil,
+        sentSize = nil,
+        inst = nil
+    }
+    table.insert(Order, p)
+    return p
+end
+
+-- Body Parts
+local Body = DefinePart("Main_Armored_Body", Vector3.new(1.15, 0.65, 2.35), SETTINGS.BodyColor)
+local Thorax = DefinePart("Thorax", Vector3.new(0.95, 0.5, 1.15), SETTINGS.ArmorColor)
+local Head = DefinePart("Head", Vector3.new(0.95, 0.55, 0.75), SETTINGS.ArmorColor)
+local FrontArmor = DefinePart("Front_Armor", Vector3.new(1.05, 0.18, 0.65), SETTINGS.DarkColor)
+local RearArmor = DefinePart("Rear_Armor", Vector3.new(1.12, 0.2, 0.8), SETTINGS.ArmorColor)
+local UnderBody = DefinePart("Underbody", Vector3.new(0.85, 0.3, 1.8), SETTINGS.DarkColor)
+local EyeLeft = DefinePart("Left_Eye", Vector3.new(0.12, 0.12, 0.12), SETTINGS.EyeColor)
+local EyeRight = DefinePart("Right_Eye", Vector3.new(0.12, 0.12, 0.12), SETTINGS.EyeColor)
+
+local BodyPlates = {}
+for i = 1, 4 do
+    BodyPlates[i] = DefinePart(
+        "Abdominal_Plate_" .. i,
+        Vector3.new(1.05 - i * 0.04, 0.12, 0.22),
+        i % 2 == 0 and SETTINGS.ArmorColor or SETTINGS.BodyColor
+    )
+end
+
+-- Legs
+local Legs = {}
+for side = -1, 1, 2 do
+    for index = 1, 4 do
+        local leg = {
+            Side = side,
+            Index = index,
+            HipZ = -1.05 + (index - 1) * 0.7,
+        }
+        leg.Upper = DefinePart("Leg_"..side.."_"..index.."_Upper", Vector3.new(0.2, 0.2, 1), SETTINGS.BodyColor)
+        leg.Lower = DefinePart("Leg_"..side.."_"..index.."_Lower", Vector3.new(0.16, 0.16, 1), SETTINGS.ArmorColor)
+        leg.Foot = DefinePart("Leg_"..side.."_"..index.."_Foot", Vector3.new(0.14, 0.14, 0.6), SETTINGS.DarkColor)
+        leg.HipJoint = DefinePart("Leg_Hip_Joint_"..side.."_"..index, Vector3.new(0.25, 0.25, 0.25), SETTINGS.JointColor)
+        leg.KneeJoint = DefinePart("Leg_Knee_Joint_"..side.."_"..index, Vector3.new(0.19, 0.19, 0.19), SETTINGS.DarkColor)
+        table.insert(Legs, leg)
+    end
+end
+
+-- Pincers
+local Claws = {}
+for side = -1, 1, 2 do
+    local claw = { Side = side }
+    claw.Arm = DefinePart("Pincer_Arm_"..side, Vector3.new(0.2, 0.2, 1), SETTINGS.ArmorColor)
+    claw.Wrist = DefinePart("Pincer_Wrist_"..side, Vector3.new(0.2, 0.2, 0.2), SETTINGS.DarkColor)
+    claw.Palm = DefinePart("Pincer_Palm_"..side, Vector3.new(0.38, 0.3, 0.55), SETTINGS.ClawColor)
+    claw.TopJaw = DefinePart("Pincer_Top_Jaw_"..side, Vector3.new(0.13, 0.13, 0.55), SETTINGS.DarkColor)
+    claw.BottomJaw = DefinePart("Pincer_Bottom_Jaw_"..side, Vector3.new(0.13, 0.13, 0.55), SETTINGS.DarkColor)
+    table.insert(Claws, claw)
+end
+
+-- Tail
+local Tail = {}
+for i = 1, 7 do
+    local segment = {
+        Part = DefinePart("Tail_Segment_"..i, Vector3.new(0.48 - i * 0.035, 0.42 - i * 0.025, 0.5), i % 2 == 0 and SETTINGS.ArmorColor or SETTINGS.BodyColor)
+    }
+    table.insert(Tail, segment)
+end
+local Stinger = DefinePart("Stinger", Vector3.new(0.17, 0.17, 0.75), SETTINGS.DarkColor)
+local TailBase = DefinePart("Tail_Base", Vector3.new(0.58, 0.48, 0.5), SETTINGS.ArmorColor)
+
+--==================================================
+-- COORDINATE HELPERS
+--==================================================
+
+local function WorldPoint(base, x, y, z)
+    return base:PointToWorldSpace(Vector3.new(x, y, z))
+end
+
+local function PlaceBlock(p, base, x, y, z, rotation)
+    local cf = base * CFrame.new(x, y, z)
+    if rotation then cf = cf * rotation end
+    p.cf = cf
+end
+
+local function ConnectBlocks(p, a, b, width, height)
+    local diff = b - a
+    local dist = diff.Magnitude
+    if dist < 0.01 then return end
+    p.size = Vector3.new(width, height, dist)
+    p.cf = CFrame.lookAt((a + b) / 2, b)
+end
+
+--==================================================
+-- TAIL CURVE
+--==================================================
+
+local function GetTailPoint(base, index, sway, time)
+    local points = {
+        Vector3.new(0, 0.15, 1.15),
+        Vector3.new(0, 0.3, 1.65),
+        Vector3.new(0, 0.65, 1.8),
+        Vector3.new(0, 1.0, 1.55),
+        Vector3.new(0, 1.35, 1.0),
+        Vector3.new(0, 1.65, 0.4),
+        Vector3.new(0, 1.85, -0.1),
+        Vector3.new(0, 1.9, -0.45),
+    }
+    local point = points[index]
+    local wave = math.sin(time * 2.2 + index * 0.55) * sway
+    return base:PointToWorldSpace(Vector3.new(point.X + wave, point.Y, point.Z))
+end
+
+--==================================================
+-- ASYNC F3X BUILDER
+--==================================================
+
+local Alive = true
+local Ready = false
+
+local function BuildScorpion()
+    local ep = getEndpoint()
+    if not ep then return false end
+
+    local spawnCF = Root.CFrame
+    local created = 0
+    local lock = false
+
+    for _, p in ipairs(Order) do
+        task.spawn(function()
+            if not Alive then return end
+            local inst = sync("CreatePart", p.kind, spawnCF, workspace)
+            while lock do task.wait() end
+            lock = true
+            if typeof(inst) == "Instance" then
+                p.inst = inst
+                created += 1
+            end
+            lock = false
+        end)
+    end
+
+    local timeout = os.clock() + 12
+    while created < #Order and os.clock() < timeout and Alive do
+        status.Text = string.format("Building Mech Suit... (%d/%d)", created, #Order)
+        task.wait(0.05)
+    end
+
+    if created < #Order then return false end
+
+    local anchors, collisions, colors, mats, sizes = {}, {}, {}, {}, {}
+    for _, p in ipairs(Order) do
+        table.insert(anchors, { Part = p.inst, Anchored = true })
+        table.insert(collisions, { Part = p.inst, CanCollide = false })
+        table.insert(colors, { Part = p.inst, Color = p.color, UnionColoring = true })
+        table.insert(mats, { Part = p.inst, Material = p.material, Transparency = 0 })
+        table.insert(sizes, { Part = p.inst, Size = p.size, CFrame = p.cf })
+    end
+
+    sync("SyncAnchor", anchors)
+    sync("SyncCollision", collisions)
+    sync("SyncColor", colors)
+    sync("SyncMaterial", mats)
+    sync("SyncResize", sizes)
+
+    return true
+end
+
+--==================================================
+-- STATE & F3X HEAD OFFSET (NECK SNAP) LOGIC
+--==================================================
+
+local AnimationTime = 0
+local WalkPhase = 0
+local SnappedPlayers = {}
+
+local function CheckNeckSnap()
+    if not Head.inst or not Head.inst.Parent then return end
+    local headPos = Head.inst.Position
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= Player and plr.Character then
+            local char = plr.Character
+            local victimHead = char:FindFirstChild("Head")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            if hum and hum.Health > 0 and victimHead and not SnappedPlayers[plr] then
+                local dist = (victimHead.Position - headPos).Magnitude
+                if dist <= SETTINGS.KillRadius then
+                    SnappedPlayers[plr] = true
+                    
+                    -- MOVE VICTIM HEAD 0.1 STUDS UPWARD VIA F3X SYNC MOVE TO SNAP NECK!
+                    local snapCF = victimHead.CFrame + Vector3.new(0, 0.1, 0)
+                    sync("SyncMove", { { Part = victimHead, CFrame = snapCF } })
+                    
+                    -- Clear cooldown after 5 seconds
+                    task.delay(5, function()
+                        SnappedPlayers[plr] = nil
+                    end)
+                end
+            end
+        end
+    end
+end
+
+local function UpdateCreature(dt)
+    if not Character.Parent or Humanoid.Health <= 0 then return end
+    AnimationTime += dt
+
+    local move = Humanoid.MoveDirection
+    local horizontalMove = Vector3.new(move.X, 0, move.Z)
+    local moving = horizontalMove.Magnitude > 0.05
+
+    if moving then
+        WalkPhase += dt * SETTINGS.WalkFrequency
+    else
+        WalkPhase += dt * 1.5
+    end
+
+    local rootCF = Root.CFrame
+    local bob = moving and math.abs(math.sin(WalkPhase * 2)) * 0.08 or math.sin(AnimationTime * 2) * 0.025
+    local bodyCF = rootCF * CFrame.new(0, -0.6 + bob, 0)
+
+    -- BODY
+    PlaceBlock(Body, bodyCF, 0, 0.12, 0)
+    PlaceBlock(Thorax, bodyCF, 0, 0.02, 0.05)
+    PlaceBlock(Head, bodyCF, 0, 0.12, -1.25)
+    PlaceBlock(FrontArmor, bodyCF, 0, 0.38, -1.3)
+    PlaceBlock(RearArmor, bodyCF, 0, 0.35, 0.8)
+    PlaceBlock(UnderBody, bodyCF, 0, -0.3, 0.05)
+    PlaceBlock(EyeLeft, bodyCF, -0.34, 0.32, -1.55)
+    PlaceBlock(EyeRight, bodyCF, 0.34, 0.32, -1.55)
+
+    for i, plate in ipairs(BodyPlates) do
+        PlaceBlock(plate, bodyCF, 0, 0.4, 0.15 + i * 0.18)
+    end
+
+    -- LEGS
+    for _, leg in ipairs(Legs) do
+        local side = leg.Side
+        local index = leg.Index
+        local alternating = index % 2 == 0 and math.pi or 0
+        local phase = WalkPhase + alternating + (side == 1 and 0 or math.pi)
+        local stride = moving and SETTINGS.LegStride or 0.08
+        local lift = moving and math.max(0, math.cos(phase)) * SETTINGS.LegLift or math.abs(math.sin(AnimationTime * 1.5 + index)) * 0.04
+
+        local footX = side * (1.65 + math.sin(phase) * stride)
+        local footZ = leg.HipZ + math.cos(phase) * stride
+
+        local hip = WorldPoint(bodyCF, side * 0.47, -0.05, leg.HipZ)
+        local foot = WorldPoint(bodyCF, footX, -1.78 + lift, footZ)
+        local knee = WorldPoint(bodyCF, side * 1.08, -0.65 + lift * 0.45, (leg.HipZ + footZ) / 2)
+        local ankle = WorldPoint(bodyCF, side * 1.52, -1.25 + lift * 0.7, footZ)
+
+        leg.HipJoint.cf = CFrame.new(hip)
+        leg.KneeJoint.cf = CFrame.new(knee)
+
+        ConnectBlocks(leg.Upper, hip, knee, 0.2, 0.2)
+        ConnectBlocks(leg.Lower, knee, ankle, 0.15, 0.15)
+        ConnectBlocks(leg.Foot, ankle, foot, 0.14, 0.14)
+    end
+
+    -- PINCERS
+    local clawMotion = math.sin(AnimationTime * 3) * 0.12
+    for _, claw in ipairs(Claws) do
+        local side = claw.Side
+        local base = WorldPoint(bodyCF, side * 0.42, -0.02, -1.5)
+        local wrist = WorldPoint(bodyCF, side * 0.75, -0.12, -2.0)
+        local palm = WorldPoint(bodyCF, side * 1.02, -0.18, -2.3)
+
+        ConnectBlocks(claw.Arm, base, wrist, 0.2, 0.2)
+        claw.Wrist.cf = CFrame.new(wrist)
+        claw.Palm.cf = CFrame.new(palm)
+
+        local jawOpen = 0.13 + clawMotion
+        local topJawStart = palm + Vector3.new(side * 0.12, 0.12, -0.15)
+        local topJawEnd = palm + Vector3.new(side * (0.35 + jawOpen), 0.1, -0.75)
+        local bottomJawStart = palm + Vector3.new(side * 0.12, -0.12, -0.15)
+        local bottomJawEnd = palm + Vector3.new(side * (0.35 + jawOpen), -0.1, -0.75)
+
+        ConnectBlocks(claw.TopJaw, topJawStart, topJawEnd, 0.13, 0.13)
+        ConnectBlocks(claw.BottomJaw, bottomJawStart, bottomJawEnd, 0.13, 0.13)
+    end
+
+    -- TAIL
+    local tailPoints = {}
+    for i = 1, 8 do
+        tailPoints[i] = GetTailPoint(bodyCF, i, moving and 0.13 or 0.09, AnimationTime)
+    end
+
+    TailBase.cf = CFrame.lookAt((tailPoints[1] + tailPoints[2]) / 2, tailPoints[2])
+    TailBase.size = Vector3.new(0.58, 0.48, 0.5)
+
+    for i = 1, 7 do
+        ConnectBlocks(Tail[i].Part, tailPoints[i], tailPoints[i + 1], 0.46 - i * 0.035, 0.42 - i * 0.025)
+    end
+
+    local stingerEnd = tailPoints[8] + Vector3.new(0, -0.42, -0.3)
+    ConnectBlocks(Stinger, tailPoints[8], stingerEnd, 0.17, 0.17)
+
+    -- CHECK FOR NECK SNAP VIA F3X
+    CheckNeckSnap()
+end
+
+--==================================================
+-- STOP / CLEANUP
+--==================================================
+
+local Connection
+
+local function StopScorpion()
+    Alive = false
+    if Connection then
+        Connection:Disconnect()
+        Connection = nil
+    end
+
+    local ep = getEndpoint()
+    if ep and Character and Character.Parent then
+        local matSync = {}
+        for _, v in ipairs(Character:GetChildren()) do
+            if v:IsA("BasePart") then
+                table.insert(matSync, { Part = v, Material = v.Material, Transparency = 0 })
+            elseif v:IsA("Accessory") and v:FindFirstChild("Handle") then
+                table.insert(matSync, { Part = v.Handle, Material = v.Handle.Material, Transparency = 0 })
+            end
+        end
+        sync("SyncMaterial", matSync)
+    end
+
+    local toDestroy = {}
+    for _, p in ipairs(Order) do
+        if p.inst then table.insert(toDestroy, p.inst) end
+    end
+    if #toDestroy > 0 then
+        sync("Remove", toDestroy)
+    end
+
+    if gui then gui:Destroy() end
+    shared.ANAN_SCORPION_F3X_STOP = nil
+end
+
+shared.ANAN_SCORPION_F3X_STOP = StopScorpion
+
+--==================================================
+-- STARTUP & NETWORK SYNC LOOPS
+--==================================================
+
+task.spawn(function()
+    while Alive and not Ready do
+        if getEndpoint() then
+            if BuildScorpion() then
+                Ready = true
+                status.Text = "NECK-SNAPPING SCORPION ACTIVE!"
+                task.wait(2)
+                status.Visible = false
+                break
+            else
+                status.Text = "Build throttled. Retrying..."
+                task.wait(2)
+            end
+        else
+            status.Text = "Equip F3X Building Tools!"
+        end
+        task.wait(1)
+    end
+end)
+
+local inflight = 0
+task.spawn(function()
+    while Alive do
+        task.wait(0.06)
+        if Ready and inflight < 3 then
+            local resizeBatch = {}
+            for _, p in ipairs(Order) do
+                if p.inst and p.inst.Parent then
+                    if not p.sentCF or not p.sentSize or 
+                       (p.cf.Position - p.sentCF.Position).Magnitude > 0.04 or 
+                       p.cf.LookVector:Dot(p.sentCF.LookVector) < 0.99 or 
+                       (p.size - p.sentSize).Magnitude > 0.02 then
+                        
+                        table.insert(resizeBatch, { Part = p.inst, Size = p.size, CFrame = p.cf })
+                        p.sentCF = p.cf
+                        p.sentSize = p.size
+                    end
+                end
+            end
+
+            if #resizeBatch > 0 then
+                inflight += 1
+                task.spawn(function()
+                    sync("SyncResize", resizeBatch)
+                    inflight -= 1
+                end)
+            end
+        end
+    end
+end)
+
+Connection = RunService.RenderStepped:Connect(function(dt)
+    if not Ready then return end
+    local success, err = pcall(function()
+        UpdateCreature(dt)
+    end)
+    if not success then
+        warn("[ANAN SCORPION F3X] Animation error:", err)
+    end
+end)
+
+print("ANAN SCORPION NECK SNAP MECH F3X LOADED!")
+print("Stop function: shared.ANAN_SCORPION_F3X_STOP()")
