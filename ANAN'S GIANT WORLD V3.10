@@ -1,0 +1,270 @@
+--========================================================
+-- ANAN'S GIANT WORLD V3.10 — ROBUST MULTI-PART FIX
+-- Ensures every single map part gets resized and moved
+-- with fallback error logging!
+--========================================================
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+
+--========================================================
+-- SETTINGS
+--========================================================
+
+local SCALE = 5
+local ORIGIN = Vector3.zero
+local MAX_SCALE = 100
+local VOID_FLOOR_SIZE = 100000
+local VOID_FLOOR_DEPTH = 250
+
+--========================================================
+-- FRESH F3X SYNC API SCANNER
+--========================================================
+
+local function getFreshEndpoint()
+    local char = LocalPlayer.Character
+    local backpack = LocalPlayer.Backpack
+
+    for _, container in ipairs({ char, backpack }) do
+        if container then
+            for _, item in ipairs(container:GetDescendants()) do
+                if item.Name == "SyncAPI" and item:FindFirstChild("ServerEndpoint") then
+                    return item.ServerEndpoint
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function sync(action, ...)
+    local ep = getFreshEndpoint()
+    if not ep then
+        return false, "F3X Building Tool missing or unequipped!"
+    end
+
+    local args = table.pack(...)
+    local ok, result = pcall(function()
+        return ep:InvokeServer(action, table.unpack(args, 1, args.n))
+    end)
+
+    return ok, result
+end
+
+--========================================================
+-- STORAGE & EXCLUSIONS
+--========================================================
+
+local ProxyFolder = Workspace:FindFirstChild("ANAN_F3X_GIANT_OBJECTS")
+if not ProxyFolder then
+    ProxyFolder = Instance.new("Folder")
+    ProxyFolder.Name = "ANAN_F3X_GIANT_OBJECTS"
+    ProxyFolder.Parent = Workspace
+end
+
+local function IsCharacterPart(obj)
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character and obj:IsDescendantOf(character) then
+            return true
+        end
+    end
+    return false
+end
+
+--========================================================
+-- CUSTOM SIZE GUI
+--========================================================
+
+if LocalPlayer.PlayerGui:FindFirstChild("ANAN_GiantWorld_F3X_Settings") then
+    LocalPlayer.PlayerGui.ANAN_GiantWorld_F3X_Settings:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ANAN_GiantWorld_F3X_Settings"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.DisplayOrder = 1000
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.fromOffset(300, 190)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -95)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+local FrameCorner = Instance.new("UICorner", MainFrame)
+FrameCorner.CornerRadius = UDim.new(0, 12)
+
+local FrameStroke = Instance.new("UIStroke", MainFrame)
+FrameStroke.Color = Color3.fromRGB(90, 90, 110)
+FrameStroke.Thickness = 1.5
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -20, 0, 35)
+Title.Position = UDim2.fromOffset(10, 8)
+Title.BackgroundTransparency = 1
+Title.Text = "ANAN'S GIANT WORLD"
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.TextSize = 19
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+
+local SizeLabel = Instance.new("TextLabel")
+SizeLabel.Size = UDim2.new(1, -30, 0, 25)
+SizeLabel.Position = UDim2.fromOffset(15, 47)
+SizeLabel.BackgroundTransparency = 1
+SizeLabel.Text = "Size Of The Map"
+SizeLabel.TextColor3 = Color3.fromRGB(210, 210, 220)
+SizeLabel.TextSize = 14
+SizeLabel.Font = Enum.Font.GothamMedium
+SizeLabel.TextXAlignment = Enum.TextXAlignment.Left
+SizeLabel.Parent = MainFrame
+
+local SizeBox = Instance.new("TextBox")
+SizeBox.Size = UDim2.new(1, -30, 0, 38)
+SizeBox.Position = UDim2.fromOffset(15, 75)
+SizeBox.BackgroundColor3 = Color3.fromRGB(42, 42, 52)
+SizeBox.TextColor3 = Color3.new(1, 1, 1)
+SizeBox.PlaceholderText = "Enter map size"
+SizeBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 160)
+SizeBox.Text = "5"
+SizeBox.TextSize = 16
+SizeBox.Font = Enum.Font.Gotham
+SizeBox.ClearTextOnFocus = false
+SizeBox.Parent = MainFrame
+
+Instance.new("UICorner", SizeBox).CornerRadius = UDim.new(0, 7)
+
+local StatusMsg = Instance.new("TextLabel")
+StatusMsg.Size = UDim2.new(1, -30, 0, 20)
+StatusMsg.Position = UDim2.fromOffset(15, 116)
+StatusMsg.BackgroundTransparency = 1
+StatusMsg.Text = "Ready to scale map"
+StatusMsg.TextColor3 = Color3.fromRGB(130, 190, 255)
+StatusMsg.TextSize = 12
+StatusMsg.Font = Enum.Font.Gotham
+StatusMsg.TextXAlignment = Enum.TextXAlignment.Left
+StatusMsg.Parent = MainFrame
+
+local DoneButton = Instance.new("TextButton")
+DoneButton.Size = UDim2.new(1, -30, 0, 35)
+DoneButton.Position = UDim2.fromOffset(15, 145)
+DoneButton.BackgroundColor3 = Color3.fromRGB(65, 115, 220)
+DoneButton.Text = "DONE"
+DoneButton.TextColor3 = Color3.new(1, 1, 1)
+DoneButton.TextSize = 15
+DoneButton.Font = Enum.Font.GothamBold
+DoneButton.Parent = MainFrame
+
+Instance.new("UICorner", DoneButton).CornerRadius = UDim.new(0, 7)
+
+--========================================================
+-- MAIN EXECUTION
+--========================================================
+
+local function StartScaling()
+    local ep = getFreshEndpoint()
+    if not ep then
+        StatusMsg.Text = "Equip F3X Tool into hand first!"
+        StatusMsg.TextColor3 = Color3.fromRGB(255, 100, 100)
+        return
+    end
+
+    DoneButton.Text = "SCALING..."
+    DoneButton.BackgroundColor3 = Color3.fromRGB(70, 70, 80)
+    DoneButton.Active = false
+
+    local targetParts = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        -- Collect all valid BaseParts excluding proxy folders and player models
+        if obj:IsA("BasePart") and not obj:IsDescendantOf(ProxyFolder) and not IsCharacterPart(obj) then
+            table.insert(targetParts, obj)
+        end
+    end
+
+    local lockBatch = {}
+    local resizeBatch = {}
+
+    for _, part in ipairs(targetParts) do
+        local oldCF = part.CFrame
+        local newPosition = ORIGIN + (oldCF.Position - ORIGIN) * SCALE
+        
+        local rawSize = part.Size * SCALE
+        local safeSize = Vector3.new(
+            math.clamp(rawSize.X, 0.05, 2048),
+            math.clamp(rawSize.Y, 0.05, 2048),
+            math.clamp(rawSize.Z, 0.05, 2048)
+        )
+        local newCF = CFrame.new(newPosition) * oldCF.Rotation
+
+        table.insert(lockBatch, { Part = part, Locked = false })
+        table.insert(resizeBatch, { Part = part, Size = safeSize, CFrame = newCF })
+    end
+
+    local batchSize = 25 -- Reduced chunk size for absolute reliability across all parts
+
+    -- 1. UNLOCK BATCH WITH RETRY LOGIC
+    for i = 1, #lockBatch, batchSize do
+        local chunk = {}
+        for j = i, math.min(i + batchSize - 1, #lockBatch) do
+            table.insert(chunk, lockBatch[j])
+        end
+        local ok, err = sync("SyncLock", chunk)
+        if not ok then
+            print("[ANAN F3X] Lock chunk failed:", err)
+        end
+        task.wait(0.01)
+    end
+
+    task.wait(0.1)
+
+    -- 2. RESIZE/MOVE BATCH WITH ERROR LOGGING
+    for i = 1, #resizeBatch, batchSize do
+        local chunk = {}
+        for j = i, math.min(i + batchSize - 1, #resizeBatch) do
+            table.insert(chunk, resizeBatch[j])
+        end
+        
+        local ok, err = sync("SyncResize", chunk)
+        if not ok then
+            -- Fallback attempt: if batch fails, loop through parts individually to isolate failing parts
+            for _, item in ipairs(chunk) do
+                local singleOk, singleErr = sync("SyncResize", {item})
+                if not singleOk then
+                    warn("[ANAN F3X] Skipped/Rejected Part:", item.Part:GetFullName(), "Error:", singleErr)
+                end
+            end
+        end
+
+        StatusMsg.Text = string.format("Scaling %d / %d", math.min(i + batchSize - 1, #resizeBatch), #resizeBatch)
+        task.wait(0.02)
+    end
+
+    -- TELEPORT
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(ORIGIN + (root.Position - ORIGIN) * SCALE) * root.CFrame.Rotation
+    end
+
+    StatusMsg.Text = "Done!"
+    StatusMsg.TextColor3 = Color3.fromRGB(100, 255, 100)
+    task.wait(0.8)
+    ScreenGui:Destroy()
+end
+
+DoneButton.MouseButton1Click:Connect(function()
+    local enteredSize = tonumber(SizeBox.Text)
+    if not enteredSize or enteredSize <= 0 or enteredSize > MAX_SCALE then
+        StatusMsg.Text = "Enter valid size (0.01 - 100)!"
+        StatusMsg.TextColor3 = Color3.fromRGB(255, 100, 100)
+        return
+    end
+    SCALE = enteredSize
+    StartScaling()
+end)
