@@ -1,13 +1,13 @@
 --============================================================
 -- DOC OCK V16 — NO-BACKPACK UNIFIED MASS SYNC EDITION
--- ZERO DELAY, UNIFIED F3X SYNC, 6 ARMS ONLY (BACKPACK REMOVED)
+-- SPACEBAR HOLD CLIMB + MOBILE CLIMB BUTTON
+-- OUTWARD ANGULAR REFERENCE CURVE EDITION
 --============================================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-
 local Player = Players.LocalPlayer
 
 --============================================================
@@ -17,49 +17,36 @@ local Player = Players.LocalPlayer
 local CFG = {
     WALK_SPEED = 16,
     RUN_SPEED = 24,
-
     FLOAT_HEIGHT = 3,
-
     JUMP_RISE_SPEED = 9,
     JUMP_MAX_HEIGHT = 12,
     RETURN_SPEED = 10,
-
     WALL_CLIMB_SPEED = 7,
-
     MOVE_RESPONSIVENESS = 35,
     MOVE_FORCE = 150000,
     MOVE_MAX_VELOCITY = 30,
-
     ROTATE_TORQUE = 100000,
     CAMERA_TURN_RESPONSIVENESS = 35,
-
     ARM_COUNT = 6,
     SEGMENTS = 12,
     ARM_WIDTH = 0.42,
-
     ARM_SPREAD = 3.5,
     GAIT_SPEED = 3.5,
     STRIDE = 5,
     STEP_HEIGHT = 1.7,
-
     ARM_RETURN_SPEED = 12,
     ARM_CURVE_HEIGHT = 0.55,
-    ARM_CURVE_BEND = 1.4,
-
+    ARM_CURVE_BEND = 2.6,
     LEDGE_FORWARD_DISTANCE = 1,
     LEDGE_DETECT_HEIGHT = 12,
     LEDGE_DETECT_DISTANCE = 30,
     LEDGE_TRANSITION_SPEED = 18,
-
     LEDGE_PROBES = {2.5, 4, 5.5},
     LEDGE_MIN_CLIMB_HEIGHT = 1.5,
     LEDGE_MAX_NEAR_HEIGHT = 8,
-
     WALL_MEMORY_TIME = 0.3,
     WALL_RAY_DISTANCE = 9,
-
     MAX_RAYCAST_SKIPS = 40,
-
     YELLOW = Color3.fromRGB(190, 255, 0),
     DARK = Color3.fromRGB(23, 25, 30),
     CORE = Color3.fromRGB(0, 220, 255),
@@ -126,7 +113,7 @@ RayParams.FilterType = Enum.RaycastFilterType.Exclude
 RayParams.IgnoreWater = true
 
 --============================================================
--- MOBILE & KEYBOARD UI (STATUS HUD, [P] RESET, [CLIMB] BUTTON)
+-- MOBILE & KEYBOARD UI
 --============================================================
 
 if Player.PlayerGui:FindFirstChild("DocOck_F3X_UI") then
@@ -152,7 +139,8 @@ StatusLabel.Text = "Locating F3X Building Tools..."
 StatusLabel.Parent = ScreenGui
 Instance.new("UICorner", StatusLabel).CornerRadius = UDim.new(0, 8)
 
--- Reset [P] Button
+-- Reset P Button
+
 local PButton = Instance.new("TextButton")
 PButton.Name = "PButton"
 PButton.Size = UDim2.fromOffset(50, 50)
@@ -164,11 +152,13 @@ PButton.TextSize = 20
 PButton.Font = Enum.Font.GothamBold
 PButton.Parent = ScreenGui
 Instance.new("UICorner", PButton).CornerRadius = UDim.new(1, 0)
+
 local Stroke1 = Instance.new("UIStroke", PButton)
 Stroke1.Color = CFG.YELLOW
 Stroke1.Thickness = 2
 
--- Mobile Climb / Jump Button
+-- Mobile Climb Button
+
 local ClimbButton = Instance.new("TextButton")
 ClimbButton.Name = "ClimbButton"
 ClimbButton.Size = UDim2.fromOffset(65, 65)
@@ -180,71 +170,104 @@ ClimbButton.TextSize = 13
 ClimbButton.Font = Enum.Font.GothamBold
 ClimbButton.Parent = ScreenGui
 Instance.new("UICorner", ClimbButton).CornerRadius = UDim.new(1, 0)
+
 local Stroke2 = Instance.new("UIStroke", ClimbButton)
 Stroke2.Color = Color3.fromRGB(0, 220, 255)
 Stroke2.Thickness = 2
 
-ClimbButton.MouseButton1Down:Connect(function() JumpHeld = true end)
-ClimbButton.MouseButton1Up:Connect(function() JumpHeld = false end)
+ClimbButton.MouseButton1Down:Connect(function()
+    JumpHeld = true
+end)
+
+ClimbButton.MouseButton1Up:Connect(function()
+    JumpHeld = false
+end)
+
 ClimbButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch then
         JumpHeld = true
     end
 end)
+
 ClimbButton.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+    if input.UserInputType == Enum.UserInputType.Touch
+        or input.UserInputType == Enum.UserInputType.MouseButton1 then
         JumpHeld = false
     end
 end)
 
 --============================================================
--- F3X ENDPOINT DETECTION (PLAYER INVENTORY / CHARACTER ONLY)
+-- F3X ENDPOINT DETECTION
 --============================================================
 
 local function getEndpoint()
-    local containers = { Player.Character, Player.Backpack }
+    local containers = {Player.Character, Player.Backpack}
+
     for _, container in ipairs(containers) do
         if container then
             for _, item in ipairs(container:GetChildren()) do
-                if item:IsA("Tool") and (string.find(string.lower(item.Name), "building tools") or item:FindFirstChild("SyncAPI")) then
+                if item:IsA("Tool") and (
+                    string.find(string.lower(item.Name), "building tools")
+                    or item:FindFirstChild("SyncAPI")
+                ) then
                     local syncApi = item:FindFirstChild("SyncAPI")
+
                     if syncApi then
                         local endpoint = syncApi:FindFirstChild("ServerEndpoint")
-                        if endpoint and (endpoint:IsA("RemoteFunction") or endpoint:IsA("RemoteEvent")) then
+
+                        if endpoint and (
+                            endpoint:IsA("RemoteFunction")
+                            or endpoint:IsA("RemoteEvent")
+                        ) then
                             return endpoint
                         end
                     end
                 end
             end
+
             local syncApi = container:FindFirstChild("SyncAPI", true)
+
             if syncApi then
                 local endpoint = syncApi:FindFirstChild("ServerEndpoint")
-                if endpoint and (endpoint:IsA("RemoteFunction") or endpoint:IsA("RemoteEvent")) then
+
+                if endpoint and (
+                    endpoint:IsA("RemoteFunction")
+                    or endpoint:IsA("RemoteEvent")
+                ) then
                     return endpoint
                 end
             end
         end
     end
+
     return nil
 end
 
 local function sync(action, ...)
     local ep = getEndpoint()
-    if not ep then return false, "No endpoint found" end
+
+    if not ep then
+        return false, "No endpoint found"
+    end
+
     local args = table.pack(...)
+
     local ok, result = pcall(function()
         return ep:InvokeServer(action, table.unpack(args, 1, args.n))
     end)
+
     return ok, result
 end
 
 --============================================================
--- F3X PART BUILDER REGISTRY & SHAPE MAPPING
+-- F3X PART BUILDER REGISTRY
 --============================================================
 
 local function DefinePart(name, size, color, material, shape)
     shape = shape or Enum.PartType.Block
+
     local kind = "Normal"
+
     if shape == Enum.PartType.Ball then
         kind = "Ball"
     elseif shape == Enum.PartType.Cylinder then
@@ -263,6 +286,7 @@ local function DefinePart(name, size, color, material, shape)
         sentSize = nil,
         inst = nil
     }
+
     table.insert(Order, p)
     return p
 end
@@ -299,6 +323,7 @@ local function PlaceCylinder(p, a, b, thickness)
     local zAxis = xAxis:Cross(yAxis).Unit
 
     p.size = Vector3.new(length, thickness, thickness)
+
     p.cf = CFrame.fromMatrix(
         (a + b) / 2,
         xAxis,
@@ -311,6 +336,7 @@ local function SafeUnit(v, fallback)
     if v.Magnitude > 0.001 then
         return v.Unit
     end
+
     return fallback or Vector3.yAxis
 end
 
@@ -320,27 +346,50 @@ end
 
 local function GetWallGroup(instance)
     if not instance then return nil end
-    if instance == workspace.Terrain then return workspace.Terrain end
+
+    if instance == workspace.Terrain then
+        return workspace.Terrain
+    end
+
     local model = instance:FindFirstAncestorOfClass("Model")
-    if model then return model end
+
+    if model then
+        return model
+    end
+
     return instance
 end
 
 local function IsSameWall(instance, lockedGroup)
-    if not instance or not lockedGroup then return false end
-    if lockedGroup == workspace.Terrain then return instance == workspace.Terrain end
-    if instance == lockedGroup then return true end
-    if lockedGroup:IsA("Model") then return instance:IsDescendantOf(lockedGroup) end
+    if not instance or not lockedGroup then
+        return false
+    end
+
+    if lockedGroup == workspace.Terrain then
+        return instance == workspace.Terrain
+    end
+
+    if instance == lockedGroup then
+        return true
+    end
+
+    if lockedGroup:IsA("Model") then
+        return instance:IsDescendantOf(lockedGroup)
+    end
+
     return false
 end
 
 local function LockWall(result)
     if not result then return end
+
     if not LockedWallGroup then
         LockedWallGroup = GetWallGroup(result.Instance)
     end
+
     LockedWallNormal = result.Normal
     LockedWallPosition = result.Position
+
     LastWallNormal = result.Normal
     LastWallPosition = result.Position
     LastWallTime = os.clock()
@@ -350,18 +399,25 @@ local function ClearWallLock()
     LockedWallGroup = nil
     LockedWallNormal = nil
     LockedWallPosition = nil
+
     LastWallNormal = nil
     LastWallPosition = nil
     LastWallTime = 0
+
     ClimbStartY = nil
 end
 
 local function CastRay(origin, direction, requiredWallGroup)
     local ignored = {Character}
-    if Folder then table.insert(ignored, Folder) end
+
+    if Folder then
+        table.insert(ignored, Folder)
+    end
 
     for _, p in ipairs(Order) do
-        if p.inst then table.insert(ignored, p.inst) end
+        if p.inst then
+            table.insert(ignored, p.inst)
+        end
     end
 
     for attempt = 1, CFG.MAX_RAYCAST_SKIPS do
@@ -369,14 +425,22 @@ local function CastRay(origin, direction, requiredWallGroup)
         RayParams.FilterDescendantsInstances = ignored
 
         local result = workspace:Raycast(origin, direction, RayParams)
-        if not result then return nil end
+
+        if not result then
+            return nil
+        end
 
         local hit = result.Instance
+
         if hit == workspace.Terrain then
             if requiredWallGroup then
-                if IsSameWall(hit, requiredWallGroup) then return result end
+                if IsSameWall(hit, requiredWallGroup) then
+                    return result
+                end
+
                 return nil
             end
+
             return result
         end
 
@@ -385,30 +449,49 @@ local function CastRay(origin, direction, requiredWallGroup)
                 table.insert(ignored, hit)
             else
                 if requiredWallGroup then
-                    if IsSameWall(hit, requiredWallGroup) then return result end
+                    if IsSameWall(hit, requiredWallGroup) then
+                        return result
+                    end
+
                     return nil
                 end
+
                 return result
             end
         else
             return nil
         end
     end
+
     return nil
 end
 
 local function GroundRay(position)
-    return CastRay(position + Vector3.new(0, 3, 0), Vector3.new(0, -60, 0))
+    return CastRay(
+        position + Vector3.new(0, 3, 0),
+        Vector3.new(0, -60, 0)
+    )
 end
 
 local function SurfaceRay(position)
-    return CastRay(position + Vector3.new(0, 12, 0), Vector3.new(0, -65, 0))
+    return CastRay(
+        position + Vector3.new(0, 12, 0),
+        Vector3.new(0, -65, 0)
+    )
 end
 
 local function WallRay(direction, requiredWallGroup)
-    if not Root or not Root.Parent then return nil end
+    if not Root or not Root.Parent then
+        return nil
+    end
+
     direction = SafeUnit(direction, LastFacing)
-    return CastRay(Root.Position, direction * CFG.WALL_RAY_DISTANCE, requiredWallGroup)
+
+    return CastRay(
+        Root.Position,
+        direction * CFG.WALL_RAY_DISTANCE,
+        requiredWallGroup
+    )
 end
 
 --============================================================
@@ -417,10 +500,12 @@ end
 
 local function DisableDefaultAnimations()
     AnimateScript = Character:FindFirstChild("Animate")
+
     if AnimateScript and AnimateScript:IsA("LocalScript") then
         AnimateWasEnabled = AnimateScript.Enabled
         AnimateScript.Enabled = false
     end
+
     for _, track in ipairs(Humanoid:GetPlayingAnimationTracks()) do
         track:Stop(0)
     end
@@ -433,8 +518,14 @@ local function CreateMovementPhysics()
         JumpHeight = Humanoid.JumpHeight,
         AutoJumpEnabled = Humanoid.AutoJumpEnabled,
         AutoRotate = Humanoid.AutoRotate,
-        JumpingEnabled = Humanoid:GetStateEnabled(Enum.HumanoidStateType.Jumping),
-        ClimbingEnabled = Humanoid:GetStateEnabled(Enum.HumanoidStateType.Climbing),
+
+        JumpingEnabled = Humanoid:GetStateEnabled(
+            Enum.HumanoidStateType.Jumping
+        ),
+
+        ClimbingEnabled = Humanoid:GetStateEnabled(
+            Enum.HumanoidStateType.Climbing
+        ),
     }
 
     Humanoid.WalkSpeed = 0
@@ -442,8 +533,16 @@ local function CreateMovementPhysics()
     Humanoid.JumpHeight = 0
     Humanoid.AutoJumpEnabled = false
     Humanoid.AutoRotate = false
-    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
-    Humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+
+    Humanoid:SetStateEnabled(
+        Enum.HumanoidStateType.Jumping,
+        false
+    )
+
+    Humanoid:SetStateEnabled(
+        Enum.HumanoidStateType.Climbing,
+        false
+    )
 
     MovementAttachment = Instance.new("Attachment")
     MovementAttachment.Name = "DocOckMovementAttachment"
@@ -456,7 +555,13 @@ local function CreateMovementPhysics()
     MovementAlignPosition.ApplyAtCenterOfMass = true
     MovementAlignPosition.ForceLimitMode = Enum.ForceLimitMode.PerAxis
     MovementAlignPosition.ForceRelativeTo = Enum.ActuatorRelativeTo.World
-    MovementAlignPosition.MaxAxesForce = Vector3.new(CFG.MOVE_FORCE, CFG.MOVE_FORCE, CFG.MOVE_FORCE)
+
+    MovementAlignPosition.MaxAxesForce = Vector3.new(
+        CFG.MOVE_FORCE,
+        CFG.MOVE_FORCE,
+        CFG.MOVE_FORCE
+    )
+
     MovementAlignPosition.MaxVelocity = CFG.MOVE_MAX_VELOCITY
     MovementAlignPosition.Responsiveness = CFG.MOVE_RESPONSIVENESS
     MovementAlignPosition.RigidityEnabled = false
@@ -472,35 +577,80 @@ local function CreateMovementPhysics()
     MovementAlignOrientation.RigidityEnabled = false
     MovementAlignOrientation.Parent = Root
 
-    LastFacing = SafeUnit(Vector3.new(Root.CFrame.LookVector.X, 0, Root.CFrame.LookVector.Z), Vector3.new(0, 0, -1))
-    MovementAlignOrientation.CFrame = CFrame.lookAt(Vector3.zero, LastFacing)
+    LastFacing = SafeUnit(
+        Vector3.new(
+            Root.CFrame.LookVector.X,
+            0,
+            Root.CFrame.LookVector.Z
+        ),
+        Vector3.new(0, 0, -1)
+    )
+
+    MovementAlignOrientation.CFrame = CFrame.lookAt(
+        Vector3.zero,
+        LastFacing
+    )
+
     MovementTarget = Root.Position
 end
 
 local function UpdateCameraFacing()
     if not MovementAlignOrientation then return end
+
     local camera = workspace.CurrentCamera
+
     if not camera then return end
 
     local look = camera.CFrame.LookVector
-    local horizontalLook = Vector3.new(look.X, 0, look.Z)
-    if horizontalLook.Magnitude < 0.01 then return end
+
+    local horizontalLook = Vector3.new(
+        look.X,
+        0,
+        look.Z
+    )
+
+    if horizontalLook.Magnitude < 0.01 then
+        return
+    end
+
     LastFacing = horizontalLook.Unit
 
-    MovementAlignOrientation.CFrame = CFrame.lookAt(Vector3.zero, LastFacing, Vector3.yAxis)
+    MovementAlignOrientation.CFrame = CFrame.lookAt(
+        Vector3.zero,
+        LastFacing,
+        Vector3.yAxis
+    )
 end
 
 local function GetInputMovement()
     local direction = Humanoid.MoveDirection
-    local horizontal = Vector3.new(direction.X, 0, direction.Z)
-    if horizontal.Magnitude > 0.05 then return horizontal.Unit end
+
+    local horizontal = Vector3.new(
+        direction.X,
+        0,
+        direction.Z
+    )
+
+    if horizontal.Magnitude > 0.05 then
+        return horizontal.Unit
+    end
+
     return Vector3.zero
 end
 
 local function GetActualMovement()
     local velocity = Root.AssemblyLinearVelocity
-    local horizontal = Vector3.new(velocity.X, 0, velocity.Z)
-    if horizontal.Magnitude > 1 then return horizontal.Unit end
+
+    local horizontal = Vector3.new(
+        velocity.X,
+        0,
+        velocity.Z
+    )
+
+    if horizontal.Magnitude > 1 then
+        return horizontal.Unit
+    end
+
     return Vector3.zero
 end
 
@@ -510,49 +660,81 @@ end
 
 local function GetFloatingHeight()
     local ground = GroundRay(Root.Position)
+
     if ground then
-        BaseFloatY = ground.Position.Y + GetCharacterHeight() + CFG.FLOAT_HEIGHT
+        BaseFloatY = ground.Position.Y
+            + GetCharacterHeight()
+            + CFG.FLOAT_HEIGHT
     end
+
     return BaseFloatY
 end
 
 local function UpdateVerticalMovement(dt, wall)
     local baseHeight = GetFloatingHeight()
-    if not baseHeight then return Root.Position.Y end
+
+    if not baseHeight then
+        return Root.Position.Y
+    end
 
     if JumpHeld then
         if wall then
             VerticalOffset += CFG.WALL_CLIMB_SPEED * dt
         else
-            VerticalOffset = math.min(VerticalOffset + CFG.JUMP_RISE_SPEED * dt, CFG.JUMP_MAX_HEIGHT)
+            VerticalOffset = math.min(
+                VerticalOffset + CFG.JUMP_RISE_SPEED * dt,
+                CFG.JUMP_MAX_HEIGHT
+            )
         end
     else
-        VerticalOffset = math.max(VerticalOffset - CFG.RETURN_SPEED * dt, 0)
+        VerticalOffset = math.max(
+            VerticalOffset - CFG.RETURN_SPEED * dt,
+            0
+        )
     end
 
     return baseHeight + VerticalOffset
 end
 
 local function GetWallForward(normal)
-    return SafeUnit(Vector3.new(-normal.X, 0, -normal.Z), LastFacing)
+    return SafeUnit(
+        Vector3.new(-normal.X, 0, -normal.Z),
+        LastFacing
+    )
 end
 
 local function DetectWallTop(wallNormal)
-    if not wallNormal or not ClimbStartY then return nil end
+    if not wallNormal or not ClimbStartY then
+        return nil
+    end
+
     local forward = GetWallForward(wallNormal)
+
     local bestResult = nil
     local bestDistance = math.huge
 
     for _, probeDistance in ipairs(CFG.LEDGE_PROBES) do
-        local probeOrigin = Root.Position + forward * probeDistance + Vector3.new(0, CFG.LEDGE_DETECT_HEIGHT, 0)
-        local result = CastRay(probeOrigin, Vector3.new(0, -CFG.LEDGE_DETECT_DISTANCE, 0))
+        local probeOrigin = Root.Position
+            + forward * probeDistance
+            + Vector3.new(0, CFG.LEDGE_DETECT_HEIGHT, 0)
+
+        local result = CastRay(
+            probeOrigin,
+            Vector3.new(0, -CFG.LEDGE_DETECT_DISTANCE, 0)
+        )
 
         if result and result.Normal.Y >= 0.7 then
-            local targetY = result.Position.Y + GetCharacterHeight() + CFG.FLOAT_HEIGHT
+            local targetY = result.Position.Y
+                + GetCharacterHeight()
+                + CFG.FLOAT_HEIGHT
+
             local climbHeight = result.Position.Y - ClimbStartY
             local difference = targetY - Root.Position.Y
 
-            if climbHeight >= CFG.LEDGE_MIN_CLIMB_HEIGHT and (difference <= CFG.LEDGE_MAX_NEAR_HEIGHT and difference >= -2) then
+            if climbHeight >= CFG.LEDGE_MIN_CLIMB_HEIGHT
+                and difference <= CFG.LEDGE_MAX_NEAR_HEIGHT
+                and difference >= -2 then
+
                 if probeDistance < bestDistance then
                     bestDistance = probeDistance
                     bestResult = result
@@ -561,17 +743,35 @@ local function DetectWallTop(wallNormal)
         end
     end
 
-    if not bestResult then return nil end
-    local targetPosition = bestResult.Position + forward * CFG.LEDGE_FORWARD_DISTANCE
-    local targetY = bestResult.Position.Y + GetCharacterHeight() + CFG.FLOAT_HEIGHT
+    if not bestResult then
+        return nil
+    end
 
-    return Vector3.new(targetPosition.X, targetY, targetPosition.Z)
+    local targetPosition = bestResult.Position
+        + forward * CFG.LEDGE_FORWARD_DISTANCE
+
+    local targetY = bestResult.Position.Y
+        + GetCharacterHeight()
+        + CFG.FLOAT_HEIGHT
+
+    return Vector3.new(
+        targetPosition.X,
+        targetY,
+        targetPosition.Z
+    )
 end
 
 local function GetCurrentLockedWall()
-    if not LockedWallGroup or not LockedWallNormal then return nil end
+    if not LockedWallGroup or not LockedWallNormal then
+        return nil
+    end
+
     local direction = -LockedWallNormal
-    local detected = WallRay(direction, LockedWallGroup)
+
+    local detected = WallRay(
+        direction,
+        LockedWallGroup
+    )
 
     if detected then
         LockWall(detected)
@@ -579,24 +779,43 @@ local function GetCurrentLockedWall()
     end
 
     if os.clock() - LastWallTime <= CFG.WALL_MEMORY_TIME then
-        return { Normal = LastWallNormal, Position = LastWallPosition, Instance = LockedWallGroup }
+        return {
+            Normal = LastWallNormal,
+            Position = LastWallPosition,
+            Instance = LockedWallGroup
+        }
     end
+
     return nil
 end
 
 local function DetectNewWall()
     local detected = WallRay(LastFacing)
-    if not detected then return nil end
-    if math.abs(detected.Normal.Y) >= 0.35 then return nil end
+
+    if not detected then
+        return nil
+    end
+
+    if math.abs(detected.Normal.Y) >= 0.35 then
+        return nil
+    end
+
     LockWall(detected)
+
     return detected
 end
 
 local function UpdateMovement(dt)
-    if not MovementAlignPosition or not MovementAlignOrientation or not Root or not Root.Parent then return end
+    if not MovementAlignPosition
+        or not MovementAlignOrientation
+        or not Root
+        or not Root.Parent then
+        return
+    end
 
     local movement = GetInputMovement()
     local speed = ShiftHeld and CFG.RUN_SPEED or CFG.WALK_SPEED
+
     UpdateCameraFacing()
 
     if not JumpHeld then
@@ -607,9 +826,18 @@ local function UpdateMovement(dt)
 
     if LedgeTarget then
         local difference = LedgeTarget - Root.Position
-        local step = math.min(1, CFG.LEDGE_TRANSITION_SPEED * dt / math.max(difference.Magnitude, 0.001))
 
-        MovementTarget = Root.Position:Lerp(LedgeTarget, step)
+        local step = math.min(
+            1,
+            CFG.LEDGE_TRANSITION_SPEED * dt
+                / math.max(difference.Magnitude, 0.001)
+        )
+
+        MovementTarget = Root.Position:Lerp(
+            LedgeTarget,
+            step
+        )
+
         MovementAlignPosition.Position = MovementTarget
 
         if difference.Magnitude < 0.35 then
@@ -622,16 +850,21 @@ local function UpdateMovement(dt)
             BaseFloatY = MovementTarget.Y
             ClearWallLock()
         end
+
         return
     end
 
     local wall = nil
+
     if JumpHeld and not LedgeLocked then
         if LockedWallGroup then
             wall = GetCurrentLockedWall()
         else
             wall = DetectNewWall()
-            if wall and not ClimbStartY then ClimbStartY = Root.Position.Y end
+
+            if wall and not ClimbStartY then
+                ClimbStartY = Root.Position.Y
+            end
         end
     end
 
@@ -639,6 +872,7 @@ local function UpdateMovement(dt)
 
     if JumpHeld and wall and not LedgeLocked then
         local topTarget = DetectWallTop(wall.Normal)
+
         if topTarget then
             LedgeTarget = topTarget
             MovementTarget = Root.Position
@@ -650,40 +884,91 @@ local function UpdateMovement(dt)
     local targetY = UpdateVerticalMovement(dt, wall)
 
     if wall and JumpHeld then
-        local wallNormal = SafeUnit(Vector3.new(wall.Normal.X, 0, wall.Normal.Z), -LastFacing)
-        local wallRight = Vector3.new(-wallNormal.Z, 0, wallNormal.X)
+        local wallNormal = SafeUnit(
+            Vector3.new(
+                wall.Normal.X,
+                0,
+                wall.Normal.Z
+            ),
+            -LastFacing
+        )
+
+        local wallRight = Vector3.new(
+            -wallNormal.Z,
+            0,
+            wallNormal.X
+        )
+
         local sideways = movement:Dot(wallRight)
 
         if math.abs(sideways) > 0.05 then
             MovementTarget += wallRight * sideways * speed * dt
         else
-            MovementTarget = Vector3.new(MovementTarget.X, targetY, MovementTarget.Z)
+            MovementTarget = Vector3.new(
+                MovementTarget.X,
+                targetY,
+                MovementTarget.Z
+            )
         end
+
     elseif movement.Magnitude > 0.05 then
         MovementTarget += movement * speed * dt
+
     else
-        MovementTarget = Vector3.new(MovementTarget.X, targetY, MovementTarget.Z)
+        MovementTarget = Vector3.new(
+            MovementTarget.X,
+            targetY,
+            MovementTarget.Z
+        )
     end
 
-    MovementAlignPosition.Position = Vector3.new(MovementTarget.X, targetY, MovementTarget.Z)
+    MovementAlignPosition.Position = Vector3.new(
+        MovementTarget.X,
+        targetY,
+        MovementTarget.Z
+    )
 end
 
 --============================================================
--- ARMS BUILDERS (BACKPACK REMOVED)
+-- ARMS BUILDERS
 --============================================================
 
 local function BuildClaw(index)
     local claw = {
         Center = Sphere("ClawCenter_" .. index, 0.65, CFG.DARK),
-        Palm = DefinePart("ClawPalm_" .. index, Vector3.new(1, 0.18, 0.85), CFG.DARK),
+
+        Palm = DefinePart(
+            "ClawPalm_" .. index,
+            Vector3.new(1, 0.18, 0.85),
+            CFG.DARK
+        ),
+
         Fingers = {}
     }
 
     for i = 1, 3 do
         table.insert(claw.Fingers, {
-            Joint = Sphere("ClawJoint_" .. index .. "_" .. i, 0.22, CFG.DARK),
-            Rod = DefinePart("ClawFinger_" .. index .. "_" .. i, Vector3.new(1, 0.2, 0.2), CFG.DARK, Enum.Material.Metal, Enum.PartType.Cylinder),
-            Tip = DefinePart("ClawTip_" .. index .. "_" .. i, Vector3.new(1, 0.14, 0.14), CFG.YELLOW, Enum.Material.Metal, Enum.PartType.Cylinder)
+            Joint = Sphere(
+                "ClawJoint_" .. index .. "_" .. i,
+                0.22,
+                CFG.DARK
+            ),
+
+            Rod = DefinePart(
+                "ClawFinger_" .. index .. "_" .. i,
+                Vector3.new(1, 0.2, 0.2),
+                CFG.DARK,
+                Enum.Material.Metal,
+                Enum.PartType.Cylinder
+            ),
+
+            Tip = DefinePart(
+                "ClawTip_" .. index .. "_" .. i,
+                Vector3.new(1, 0.14, 0.14),
+                CFG.YELLOW,
+                Enum.Material.Metal,
+                Enum.PartType.Cylinder
+            )
         })
     end
 
@@ -703,12 +988,40 @@ local function BuildArm(config, index)
         LastCycle = -1,
     }
 
-    arm.Shoulder = Sphere("Shoulder_" .. index, 1, CFG.DARK)
-    arm.ShoulderRing = DefinePart("ShoulderRing_" .. index, Vector3.new(0.35, 1.1, 1.1), CFG.YELLOW, Enum.Material.Metal, Enum.PartType.Cylinder)
+    arm.Shoulder = Sphere(
+        "Shoulder_" .. index,
+        1,
+        CFG.DARK
+    )
+
+    arm.ShoulderRing = DefinePart(
+        "ShoulderRing_" .. index,
+        Vector3.new(0.35, 1.1, 1.1),
+        CFG.YELLOW,
+        Enum.Material.Metal,
+        Enum.PartType.Cylinder
+    )
 
     for i = 1, CFG.SEGMENTS do
-        table.insert(arm.Segments, DefinePart("ArmSegment_" .. index .. "_" .. i, Vector3.new(1, CFG.ARM_WIDTH, CFG.ARM_WIDTH), CFG.YELLOW, Enum.Material.Metal, Enum.PartType.Cylinder))
-        table.insert(arm.Joints, Sphere("ArmJoint_" .. index .. "_" .. i, 0.32, CFG.DARK))
+        table.insert(
+            arm.Segments,
+            DefinePart(
+                "ArmSegment_" .. index .. "_" .. i,
+                Vector3.new(1, CFG.ARM_WIDTH, CFG.ARM_WIDTH),
+                CFG.YELLOW,
+                Enum.Material.Metal,
+                Enum.PartType.Cylinder
+            )
+        )
+
+        table.insert(
+            arm.Joints,
+            Sphere(
+                "ArmJoint_" .. index .. "_" .. i,
+                0.32,
+                CFG.DARK
+            )
+        )
     end
 
     return arm
@@ -716,30 +1029,57 @@ end
 
 local function GetBase(arm)
     local c = arm.Config
-    return Root.CFrame:PointToWorldSpace(Vector3.new(c.x * 0.95, 0.6, c.z * 0.95 + 0.2))
+
+    return Root.CFrame:PointToWorldSpace(
+        Vector3.new(
+            c.x * 0.95,
+            0.6,
+            c.z * 0.95 + 0.2
+        )
+    )
 end
 
 local function GetSurfaceTarget(position)
     local result = SurfaceRay(position)
+
     if result then
-        return result.Position + result.Normal * 0.25, result.Normal
+        return result.Position + result.Normal * 0.25,
+            result.Normal
     end
+
     return position, Vector3.yAxis
 end
 
 local function GetWalkingTarget(arm, movement)
     local c = arm.Config
-    local radial = SafeUnit(Root.CFrame:VectorToWorldSpace(Vector3.new(c.x, 0, c.z)), Vector3.xAxis)
-    local forward = SafeUnit(Vector3.new(movement.X, 0, movement.Z), LastFacing)
+
+    local radial = SafeUnit(
+        Root.CFrame:VectorToWorldSpace(
+            Vector3.new(c.x, 0, c.z)
+        ),
+        Vector3.xAxis
+    )
+
+    local forward = SafeUnit(
+        Vector3.new(movement.X, 0, movement.Z),
+        LastFacing
+    )
 
     if movement.Magnitude < 0.05 then
         arm.Plant = nil
         arm.LastCycle = -1
-        local idleTarget = Root.Position + radial * CFG.ARM_SPREAD + Vector3.new(0, -2.5, 0)
+
+        local idleTarget = Root.Position
+            + radial * CFG.ARM_SPREAD
+            + Vector3.new(0, -2.5, 0)
+
         return GetSurfaceTarget(idleTarget)
     end
 
-    local rawCycle = Elapsed * CFG.GAIT_SPEED / (2 * math.pi) + c.phase / (2 * math.pi)
+    local rawCycle = Elapsed * CFG.GAIT_SPEED
+        / (2 * math.pi)
+        + c.phase / (2 * math.pi)
+
     local cyclePosition = rawCycle % 1
     local cycleNumber = math.floor(rawCycle)
 
@@ -748,8 +1088,13 @@ local function GetWalkingTarget(arm, movement)
 
     if stance and cycleNumber ~= arm.LastCycle then
         arm.LastCycle = cycleNumber
-        local plantPosition = Root.Position + sidePosition + forward * (CFG.STRIDE * 0.5)
+
+        local plantPosition = Root.Position
+            + sidePosition
+            + forward * (CFG.STRIDE * 0.5)
+
         local planted, normal = GetSurfaceTarget(plantPosition)
+
         arm.Plant = planted
         arm.PlantNormal = normal
     end
@@ -758,29 +1103,61 @@ local function GetWalkingTarget(arm, movement)
         return arm.Plant, arm.PlantNormal
     end
 
-    local swingProgress = math.clamp((cyclePosition - 0.58) / 0.42, 0, 1)
-    local stridePosition = -CFG.STRIDE * 0.5 + CFG.STRIDE * swingProgress
-    local lift = math.sin(swingProgress * math.pi) * CFG.STEP_HEIGHT
-    local swingPosition = Root.Position + sidePosition + forward * stridePosition + Vector3.new(0, lift, 0)
+    local swingProgress = math.clamp(
+        (cyclePosition - 0.58) / 0.42,
+        0,
+        1
+    )
+
+    local stridePosition = -CFG.STRIDE * 0.5
+        + CFG.STRIDE * swingProgress
+
+    local lift = math.sin(swingProgress * math.pi)
+        * CFG.STEP_HEIGHT
+
+    local swingPosition = Root.Position
+        + sidePosition
+        + forward * stridePosition
+        + Vector3.new(0, lift, 0)
 
     return GetSurfaceTarget(swingPosition)
 end
 
 local function GetWallTarget(arm, wall, index)
     local c = arm.Config
-    local radial = Root.CFrame:VectorToWorldSpace(Vector3.new(c.x, 0, c.z))
-    local height = ((index % 2 == 0) and 2 or -2) + math.sin(Elapsed * 3 + c.phase)
-    local desired = wall.Position + radial * 2 + Vector3.new(0, height, 0)
-    local result = CastRay(desired + wall.Normal * 4, -wall.Normal * 9, LockedWallGroup)
+
+    local radial = Root.CFrame:VectorToWorldSpace(
+        Vector3.new(c.x, 0, c.z)
+    )
+
+    local height = ((index % 2 == 0) and 2 or -2)
+        + math.sin(Elapsed * 3 + c.phase)
+
+    local desired = wall.Position
+        + radial * 2
+        + Vector3.new(0, height, 0)
+
+    local result = CastRay(
+        desired + wall.Normal * 4,
+        -wall.Normal * 9,
+        LockedWallGroup
+    )
 
     if result then
-        return result.Position + result.Normal * 0.25, result.Normal
+        return result.Position + result.Normal * 0.25,
+            result.Normal
     end
+
     return desired, wall.Normal
 end
 
+--============================================================
+-- OUTWARD ANGULAR ARM CURVE
+--============================================================
+
 local function AnimateArm(arm, target, normal, dt)
     local base = GetBase(arm)
+
     normal = SafeUnit(normal, Vector3.yAxis)
 
     if not arm.CurrentTarget then
@@ -788,6 +1165,7 @@ local function AnimateArm(arm, target, normal, dt)
     end
 
     local alpha = 1 - math.exp(-dt * CFG.ARM_RETURN_SPEED)
+
     arm.CurrentTarget = arm.CurrentTarget:Lerp(target, alpha)
     arm.CurrentNormal = arm.CurrentNormal:Lerp(normal, alpha)
 
@@ -795,15 +1173,71 @@ local function AnimateArm(arm, target, normal, dt)
     normal = SafeUnit(arm.CurrentNormal, Vector3.yAxis)
 
     local radial = SafeUnit(target - base, LastFacing)
-    local control1 = base + radial * CFG.ARM_CURVE_BEND + Vector3.new(0, CFG.ARM_CURVE_HEIGHT, 0)
-    local control2 = target - radial * CFG.ARM_CURVE_BEND * 0.35 + Vector3.new(0, CFG.ARM_CURVE_HEIGHT, 0)
 
-    local function Bezier(t)
-        local u = 1 - t
-        return base * u^3 + control1 * 3 * u^2 * t + control2 * 3 * u * t^2 + target * t^3
+    -- Build the outward-hook shape from several guide points.
+    local localOutward = Vector3.new(
+        arm.Config.x,
+        0,
+        arm.Config.z
+    )
+
+    local outward = SafeUnit(
+        Root.CFrame:VectorToWorldSpace(localOutward),
+        radial
+    )
+
+    local distance = (target - base).Magnitude
+    local bend = math.min(
+        CFG.ARM_CURVE_BEND,
+        math.max(1.2, distance * 0.22)
+    )
+
+    local lift = CFG.ARM_CURVE_HEIGHT
+
+    -- Shoulder -> outward bend -> inward turn -> palm.
+    local path = {
+        base,
+
+        base + radial * (distance * 0.22)
+            + outward * (bend * 0.75)
+            + Vector3.new(0, lift * 0.15, 0),
+
+        base + radial * (distance * 0.52)
+            + outward * bend
+            + Vector3.new(0, lift * 0.55, 0),
+
+        target - radial * (distance * 0.18)
+            + outward * (bend * 0.18)
+            + Vector3.new(0, lift * 0.25, 0),
+
+        target,
+    }
+
+    local function CurvePoint(t)
+        local scaled = math.clamp(t, 0, 1) * (#path - 1)
+        local segment = math.min(
+            math.floor(scaled) + 1,
+            #path - 1
+        )
+
+        local u = scaled - (segment - 1)
+
+        local p0 = path[math.max(1, segment - 1)]
+        local p1 = path[segment]
+        local p2 = path[segment + 1]
+        local p3 = path[math.min(#path, segment + 2)]
+
+        local u2 = u * u
+        local u3 = u2 * u
+
+        return (p1 * 2
+            + (p2 - p0) * u
+            + (p0 * 2 - p1 * 5 + p2 * 4 - p3) * u2
+            + (-p0 + p1 * 3 - p2 * 3 + p3) * u3) * 0.5
     end
 
-    local previous = Bezier(0)
+    local previous = CurvePoint(0)
+
     arm.Shoulder.cf = CFrame.new(base)
 
     PlaceCylinder(
@@ -814,9 +1248,17 @@ local function AnimateArm(arm, target, normal, dt)
     )
 
     for i = 1, CFG.SEGMENTS do
-        local point = Bezier(i / CFG.SEGMENTS)
-        PlaceCylinder(arm.Segments[i], previous, point, CFG.ARM_WIDTH)
+        local point = CurvePoint(i / CFG.SEGMENTS)
+
+        PlaceCylinder(
+            arm.Segments[i],
+            previous,
+            point,
+            CFG.ARM_WIDTH
+        )
+
         arm.Joints[i].cf = CFrame.new(previous)
+
         previous = point
     end
 
@@ -829,23 +1271,59 @@ local function AnimateArm(arm, target, normal, dt)
     end
 
     along = SafeUnit(along, Vector3.xAxis)
-    local side = SafeUnit(along:Cross(normal), Vector3.xAxis)
-    local up = SafeUnit(normal:Cross(side), Vector3.yAxis)
 
-    arm.Claw.Palm.cf = CFrame.fromMatrix(target - normal * 0.08, side, up, normal)
-    arm.Claw.Center.cf = CFrame.new(target + normal * 0.15)
+    local side = SafeUnit(
+        along:Cross(normal),
+        Vector3.xAxis
+    )
 
-    local directions = { along, SafeUnit(along + side * 0.65, along), SafeUnit(along - side * 0.65, along) }
+    local up = SafeUnit(
+        normal:Cross(side),
+        Vector3.yAxis
+    )
+
+    arm.Claw.Palm.cf = CFrame.fromMatrix(
+        target - normal * 0.08,
+        side,
+        up,
+        normal
+    )
+
+    arm.Claw.Center.cf = CFrame.new(
+        target + normal * 0.15
+    )
+
+    local directions = {
+        along,
+        SafeUnit(along + side * 0.65, along),
+        SafeUnit(along - side * 0.65, along)
+    }
 
     for i, finger in ipairs(arm.Claw.Fingers) do
         local direction = directions[i]
-        local start = target + normal * 0.12 + direction * 0.25
+
+        local start = target
+            + normal * 0.12
+            + direction * 0.25
+
         local middle = start + direction * 0.7
         local finish = middle + direction * 0.35
 
         finger.Joint.cf = CFrame.new(start)
-        PlaceCylinder(finger.Rod, start, middle, 0.2)
-        PlaceCylinder(finger.Tip, middle, finish, 0.14)
+
+        PlaceCylinder(
+            finger.Rod,
+            start,
+            middle,
+            0.2
+        )
+
+        PlaceCylinder(
+            finger.Tip,
+            middle,
+            finish,
+            0.14
+        )
     end
 end
 
@@ -854,14 +1332,19 @@ end
 --============================================================
 
 local function Cleanup()
+    F3XReady = false
+
     for _, connection in ipairs(Connections) do
         if connection.Connected then
             connection:Disconnect()
         end
     end
+
     table.clear(Connections)
 
-    RunService:UnbindFromRenderStep("DocOckPureF3X_Arms")
+    RunService:UnbindFromRenderStep(
+        "DocOckPureF3X_Arms"
+    )
 
     if MovementAlignPosition then
         MovementAlignPosition:Destroy()
@@ -879,11 +1362,13 @@ local function Cleanup()
     end
 
     local toDestroy = {}
+
     for _, p in ipairs(Order) do
         if p.inst and p.inst.Parent then
             table.insert(toDestroy, p.inst)
         end
     end
+
     if #toDestroy > 0 then
         sync("Remove", toDestroy)
     end
@@ -903,8 +1388,15 @@ local function Cleanup()
         Humanoid.AutoJumpEnabled = OriginalSettings.AutoJumpEnabled
         Humanoid.AutoRotate = OriginalSettings.AutoRotate
 
-        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, OriginalSettings.JumpingEnabled)
-        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, OriginalSettings.ClimbingEnabled)
+        Humanoid:SetStateEnabled(
+            Enum.HumanoidStateType.Jumping,
+            OriginalSettings.JumpingEnabled
+        )
+
+        Humanoid:SetStateEnabled(
+            Enum.HumanoidStateType.Climbing,
+            OriginalSettings.ClimbingEnabled
+        )
     end
 
     if AnimateScript and AnimateScript.Parent then
@@ -914,23 +1406,28 @@ local function Cleanup()
     OriginalSettings = nil
     AnimateScript = nil
     AnimateWasEnabled = nil
+
     MovementTarget = nil
     LedgeTarget = nil
     LedgeLocked = false
+
     BaseFloatY = nil
     VerticalOffset = 0
+
     ClearWallLock()
+
     JumpHeld = false
     ShiftHeld = false
     CurrentWall = nil
 end
 
 --============================================================
--- INITIALIZE & UNIFIED MASS SYNC (ZERO DELAY / ZERO STAGGER)
+-- INITIALIZE & UNIFIED MASS SYNC
 --============================================================
 
 local function Initialize(character)
     if not Active then return end
+
     Cleanup()
 
     Character = character
@@ -950,12 +1447,17 @@ local function Initialize(character)
     Folder.Parent = workspace
 
     for i, config in ipairs(ARM_CONFIG) do
-        table.insert(Arms, BuildArm(config, i))
+        table.insert(
+            Arms,
+            BuildArm(config, i)
+        )
     end
 
-    -- INSTANT PARALLEL SPAWN WITH ZERO DELAY & UNIFIED SYNC BATCHING
+    -- F3X SPAWNING
     task.spawn(function()
+        StatusLabel.Visible = true
         StatusLabel.Text = "Scanning F3X Endpoint..."
+
         while Active and not getEndpoint() do
             task.wait(0.1)
         end
@@ -963,14 +1465,20 @@ local function Initialize(character)
         if not Active then return end
 
         StatusLabel.Text = "Instant Spawning Arms..."
+
         local spawnCF = Root.CFrame
         local created = 0
         local total = #Order
 
-        -- Spawn all parts instantly in parallel (zero delay)
         for _, p in ipairs(Order) do
             task.spawn(function()
-                local ok, inst = sync("CreatePart", p.kind, spawnCF, workspace)
+                local ok, inst = sync(
+                    "CreatePart",
+                    p.kind,
+                    spawnCF,
+                    workspace
+                )
+
                 if ok and typeof(inst) == "Instance" then
                     p.inst = inst
                     inst.Name = p.name
@@ -979,11 +1487,15 @@ local function Initialize(character)
             end)
         end
 
-        -- Wait until every single part is confirmed created
         local timeout = os.clock() + 3
-        while created < total and os.clock() < timeout and Active do
+
+        while created < total
+            and os.clock() < timeout
+            and Active do
             task.wait(0.01)
         end
+
+        if not Active then return end
 
         if created < total then
             StatusLabel.Text = "Spawn incomplete. Re-try script."
@@ -991,68 +1503,147 @@ local function Initialize(character)
         end
 
         StatusLabel.Text = "Snapping Rig Into Place..."
-        local anchors, cols, colors, mats, sizes = {}, {}, {}, {}, {}
+
+        local anchors = {}
+        local cols = {}
+        local colors = {}
+        local mats = {}
+        local sizes = {}
+
         for _, p in ipairs(Order) do
             if p.inst and p.inst.Parent then
-                table.insert(anchors, {Part = p.inst, Anchored = true})
-                table.insert(cols, {Part = p.inst, CanCollide = false})
-                table.insert(colors, {Part = p.inst, Color = p.color, UnionColoring = true})
-                table.insert(mats, {Part = p.inst, Material = p.material, Transparency = 0})
-                table.insert(sizes, {Part = p.inst, Size = p.size, CFrame = p.cf})
+                table.insert(anchors, {
+                    Part = p.inst,
+                    Anchored = true
+                })
+
+                table.insert(cols, {
+                    Part = p.inst,
+                    CanCollide = false
+                })
+
+                table.insert(colors, {
+                    Part = p.inst,
+                    Color = p.color,
+                    UnionColoring = true
+                })
+
+                table.insert(mats, {
+                    Part = p.inst,
+                    Material = p.material,
+                    Transparency = 0
+                })
+
+                table.insert(sizes, {
+                    Part = p.inst,
+                    Size = p.size,
+                    CFrame = p.cf
+                })
+
                 p.sentCF = p.cf
                 p.sentSize = p.size
             end
         end
 
-        -- Apply all properties and initial positions simultaneously in one massive packet
         sync("SyncAnchor", anchors)
         sync("SyncCollision", cols)
         sync("SyncColor", colors)
         sync("SyncMaterial", mats)
         sync("SyncResize", sizes)
 
-        -- Unlock movement and animation loops simultaneously
         F3XReady = true
+
         StatusLabel.Text = "DOC OCK ACTIVE!"
+
         task.wait(1)
-        StatusLabel.Visible = false
+
+        if Active then
+            StatusLabel.Visible = false
+        end
     end)
 
+    --========================================================
     -- INPUT CONNECTIONS
-    table.insert(Connections, UserInputService.InputBegan:Connect(function(input, processed)
-        if processed then return end
-        if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
-            ShiftHeld = true
-        end
-    end))
+    -- SPACEBAR HOLD + SHIFT + MOBILE CLIMB
+    --========================================================
 
-    table.insert(Connections, UserInputService.InputEnded:Connect(function(input)
-        if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+    table.insert(
+        Connections,
+        UserInputService.InputBegan:Connect(function(input, processed)
+            if input.KeyCode == Enum.KeyCode.LeftShift
+                or input.KeyCode == Enum.KeyCode.RightShift then
+
+                if not processed then
+                    ShiftHeld = true
+                end
+            end
+
+            -- HOLD SPACE TO CLIMB / JUMP
+            if input.KeyCode == Enum.KeyCode.Space
+                and not processed then
+                JumpHeld = true
+            end
+        end)
+    )
+
+    table.insert(
+        Connections,
+        UserInputService.InputEnded:Connect(function(input)
+            if input.KeyCode == Enum.KeyCode.LeftShift
+                or input.KeyCode == Enum.KeyCode.RightShift then
+                ShiftHeld = false
+            end
+
+            -- RELEASE SPACE TO STOP CLIMBING
+            if input.KeyCode == Enum.KeyCode.Space then
+                JumpHeld = false
+            end
+        end)
+    )
+
+    table.insert(
+        Connections,
+        UserInputService.WindowFocusReleased:Connect(function()
+            JumpHeld = false
             ShiftHeld = false
-        end
-    end))
-
-    table.insert(Connections, UserInputService.WindowFocusReleased:Connect(function()
-        JumpHeld = false
-        ShiftHeld = false
-    end))
+        end)
+    )
 
     -- MOVEMENT
-    table.insert(Connections, RunService.PreSimulation:Connect(function(dt)
-        if not Active or not F3XReady or not Root or not Root.Parent or not Humanoid or Humanoid.Health <= 0 then return end
-        UpdateMovement(math.min(dt, 0.05))
-    end))
+    table.insert(
+        Connections,
+        RunService.PreSimulation:Connect(function(dt)
+            if not Active
+                or not F3XReady
+                or not Root
+                or not Root.Parent
+                or not Humanoid
+                or Humanoid.Health <= 0 then
+                return
+            end
 
-    -- ANIMATION LOOP (LOCKED UNTIL F3XREADY IS TRUE)
+            UpdateMovement(math.min(dt, 0.05))
+        end)
+    )
+
+    -- ARM ANIMATION LOOP
     RunService:BindToRenderStep(
         "DocOckPureF3X_Arms",
         Enum.RenderPriority.Character.Value + 1,
         function(dt)
-            if not Active or not F3XReady or not Character or not Character.Parent or not Humanoid or Humanoid.Health <= 0 or not Root or not Root.Parent then
+            if not Active
+                or not F3XReady
+                or not Character
+                or not Character.Parent
+                or not Humanoid
+                or Humanoid.Health <= 0
+                or not Root
+                or not Root.Parent then
                 return
             end
 
             dt = math.min(dt, 0.05)
+
             Elapsed += dt
 
             local movement = GetActualMovement()
@@ -1063,39 +1654,69 @@ local function Initialize(character)
                 local target, normal
 
                 if wall and JumpHeld then
-                    target, normal = GetWallTarget(arm, wall, i)
+                    target, normal = GetWallTarget(
+                        arm,
+                        wall,
+                        i
+                    )
+
                 elseif ground then
-                    target, normal = GetWalkingTarget(arm, movement)
+                    target, normal = GetWalkingTarget(
+                        arm,
+                        movement
+                    )
+
                 else
                     target, normal = GetSurfaceTarget(
-                        Root.Position + Root.CFrame:VectorToWorldSpace(
-                            Vector3.new(arm.Config.x * CFG.ARM_SPREAD, -2.5, arm.Config.z * CFG.ARM_SPREAD)
-                        )
+                        Root.Position
+                            + Root.CFrame:VectorToWorldSpace(
+                                Vector3.new(
+                                    arm.Config.x * CFG.ARM_SPREAD,
+                                    -2.5,
+                                    arm.Config.z * CFG.ARM_SPREAD
+                                )
+                            )
                     )
                 end
 
-                AnimateArm(arm, target, normal, dt)
+                AnimateArm(
+                    arm,
+                    target,
+                    normal,
+                    dt
+                )
             end
         end
     )
 
-    -- UNIFIED F3X BATCH SERVER REPLICATION LOOP (ALL PARTS IN ONE SINGLE PACKET)
+    --========================================================
+    -- UNIFIED F3X BATCH SERVER REPLICATION LOOP
+    --========================================================
+
     task.spawn(function()
         local inflight = 0
+
         while Active do
             task.wait(0.06)
+
             if F3XReady and inflight < 2 then
                 local batch = {}
 
                 for _, p in ipairs(Order) do
                     local part = p.inst
+
                     if part and part.Parent then
-                        if not p.sentCF or not p.sentSize or 
-                           (p.cf.Position - p.sentCF.Position).Magnitude > 0.03 or 
-                           p.cf.LookVector:Dot(p.sentCF.LookVector) < 0.99 or 
-                           (p.size - p.sentSize).Magnitude > 0.02 then
-                            
-                            table.insert(batch, { Part = part, Size = p.size, CFrame = p.cf })
+                        if not p.sentCF
+                            or not p.sentSize
+                            or (p.cf.Position - p.sentCF.Position).Magnitude > 0.03
+                            or p.cf.LookVector:Dot(p.sentCF.LookVector) < 0.99
+                            or (p.size - p.sentSize).Magnitude > 0.02 then
+
+                            table.insert(batch, {
+                                Part = part,
+                                Size = p.size,
+                                CFrame = p.cf
+                            })
 
                             p.sentCF = p.cf
                             p.sentSize = p.size
@@ -1105,6 +1726,7 @@ local function Initialize(character)
 
                 if #batch > 0 then
                     inflight += 1
+
                     task.spawn(function()
                         sync("SyncResize", batch)
                         inflight -= 1
@@ -1114,19 +1736,28 @@ local function Initialize(character)
         end
     end)
 
-    table.insert(Connections, Humanoid.Died:Connect(Cleanup))
+    table.insert(
+        Connections,
+        Humanoid.Died:Connect(Cleanup)
+    )
+
     print("[DOC OCK NO-BACKPACK SYNC] Initialized successfully!")
 end
 
 --============================================================
--- RESET LOGIC ([P] BUTTON & KEY)
+-- RESET LOGIC
 --============================================================
 
-function TriggerReset()
+local function TriggerReset()
     if Active then
         Active = false
+
         Cleanup()
-        ScreenGui:Destroy()
+
+        if ScreenGui then
+            ScreenGui:Destroy()
+        end
+
         print("[DOC OCK RESET] Reset successfully!")
     end
 end
@@ -1157,4 +1788,5 @@ end
 
 print("====================================")
 print("DOC OCK V16 — NO-BACKPACK READY")
+print("SPACEBAR HOLD CLIMB ENABLED")
 print("====================================")
